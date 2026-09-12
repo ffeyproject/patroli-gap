@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import {
     Activity,
+    AlertCircle,
     Calendar,
     CheckCircle2,
     Clock,
+    ExternalLink,
     Eye,
     Filter,
     Layers,
@@ -109,7 +111,24 @@ export default function PatrolIndex({
     const [searchQuery, setSearchQuery] = useState<string>(filters.search || '');
 
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+    const [imageError, setImageError] = useState<boolean>(false);
     const [selectedCheckpointDetail, setSelectedCheckpointDetail] = useState<CheckpointRecap | null>(null);
+
+    const getPhotoUrl = (path?: string | null): string => {
+        if (!path) return '';
+        if (path.startsWith('http://') || path.startsWith('https://')) return path;
+        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+        if (!cleanPath.startsWith('storage/')) {
+            return `/storage/${cleanPath}`;
+        }
+        return `/${cleanPath}`;
+    };
+
+    const openPhoto = (path?: string | null) => {
+        if (!path) return;
+        setImageError(false);
+        setSelectedPhoto(getPhotoUrl(path));
+    };
 
     const applyFilter = (params?: {
         newTab?: 'sessions' | 'recap';
@@ -463,7 +482,7 @@ export default function PatrolIndex({
 
                                             {log.selfie_photo_path && (
                                                 <button
-                                                    onClick={() => setSelectedPhoto('/' + log.selfie_photo_path)}
+                                                    onClick={() => openPhoto(log.selfie_photo_path)}
                                                     className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-300 py-1 text-[11px] font-medium border border-slate-700 transition-colors cursor-pointer"
                                                 >
                                                     <Eye className="size-3" />
@@ -654,7 +673,7 @@ export default function PatrolIndex({
 
                                         {log.selfie_photo_path && (
                                             <button
-                                                onClick={() => setSelectedPhoto('/' + log.selfie_photo_path)}
+                                                onClick={() => openPhoto(log.selfie_photo_path)}
                                                 className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-semibold transition-colors cursor-pointer"
                                             >
                                                 <Eye className="size-3.5" />
@@ -676,22 +695,62 @@ export default function PatrolIndex({
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
                     <div className="relative max-w-2xl w-full bg-[#0f172a] border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
                         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-[#131b2e]">
-                            <span className="text-white font-semibold text-sm">
-                                Foto Selfie Petugas Ber-watermark
-                            </span>
-                            <button
-                                onClick={() => setSelectedPhoto(null)}
-                                className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                            >
-                                <X className="size-5" />
-                            </button>
+                            <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                                <ShieldCheck className="size-4 text-emerald-400" />
+                                <span>Foto Selfie Petugas Ber-watermark</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <a
+                                    href={selectedPhoto}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-lg p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors"
+                                    title="Buka di tab baru"
+                                >
+                                    <ExternalLink className="size-4" />
+                                </a>
+                                <button
+                                    onClick={() => {
+                                        setSelectedPhoto(null);
+                                        setImageError(false);
+                                    }}
+                                    className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title="Tutup"
+                                >
+                                    <X className="size-5" />
+                                </button>
+                            </div>
                         </div>
-                        <div className="p-4 flex items-center justify-center bg-black">
-                            <img
-                                src={selectedPhoto}
-                                alt="Foto Selfie Watermark"
-                                className="max-h-[70vh] w-auto object-contain rounded-lg shadow-lg"
-                            />
+                        <div className="p-4 min-h-[300px] flex items-center justify-center bg-black/90">
+                            {imageError ? (
+                                <div className="text-center p-6 space-y-2">
+                                    <AlertCircle className="size-10 text-amber-400 mx-auto" />
+                                    <p className="text-sm font-semibold text-slate-200">Foto selfie tidak dapat dimuat</p>
+                                    <p className="text-xs text-slate-400 max-w-md font-mono bg-slate-900 p-2 rounded border border-slate-800 break-all">
+                                        Path: {selectedPhoto}
+                                    </p>
+                                    <p className="text-[11px] text-slate-500">
+                                        Pastikan folder storage terhubung (`php artisan storage:link`) dan file gambar tersedia.
+                                    </p>
+                                </div>
+                            ) : (
+                                <img
+                                    src={selectedPhoto}
+                                    alt="Foto Selfie Watermark"
+                                    className="max-h-[70vh] w-auto object-contain rounded-lg shadow-lg"
+                                    onError={() => setImageError(true)}
+                                />
+                            )}
+                        </div>
+                        <div className="p-3 bg-[#0c1222] text-center text-xs text-slate-400 border-t border-slate-800 flex items-center justify-between px-4">
+                            <span>Bukti selfie dan watermark terverifikasi sistem GPS & Checkpoint.</span>
+                            <a
+                                href={selectedPhoto}
+                                download
+                                className="text-blue-400 hover:text-blue-300 font-medium underline"
+                            >
+                                Unduh Foto
+                            </a>
                         </div>
                     </div>
                 </div>
