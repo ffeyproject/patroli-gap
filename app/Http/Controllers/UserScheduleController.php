@@ -36,14 +36,59 @@ class UserScheduleController extends Controller
             'badge_number' => 'nullable|string|max:50',
             'phone' => 'nullable|string|max:50',
             'role' => 'required|in:superadmin,admin,danru,satpam',
+            'theme' => 'nullable|string|in:midnight,carbon,cyberpunk,emerald,amber,crimson,ocean,nordic,blackout,royal,toxic,light,sandstone,rosegold',
         ]);
 
         $validated['password'] = Hash::make($validated['password']);
         $validated['is_active'] = true;
+        $validated['theme'] = $validated['theme'] ?? 'midnight';
 
         User::create($validated);
 
         return back()->with('success', 'User / Petugas baru berhasil didaftarkan.');
+    }
+
+    public function updateUser(Request $request, int $id): RedirectResponse
+    {
+        $user = User::findOrFail($id);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'nullable|string|max:255|unique:users,username,' . $user->id,
+            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+            'password' => 'nullable|string|min:6',
+            'badge_number' => 'nullable|string|max:50',
+            'phone' => 'nullable|string|max:50',
+            'role' => 'required|in:superadmin,admin,danru,satpam',
+            'is_active' => 'nullable|boolean',
+            'theme' => 'nullable|string|in:midnight,carbon,cyberpunk,emerald,amber,crimson,ocean,nordic,blackout,royal,toxic,light,sandstone,rosegold',
+        ]);
+
+        if (!empty($validated['password'])) {
+            $validated['password'] = Hash::make($validated['password']);
+        } else {
+            unset($validated['password']);
+        }
+
+        $validated['is_active'] = $request->boolean('is_active', true);
+
+        $user->update($validated);
+
+        return back()->with('success', 'Data Petugas / User berhasil diperbarui.');
+    }
+
+    public function destroyUser(Request $request, int $id): RedirectResponse
+    {
+        $user = User::findOrFail($id);
+
+        if ($request->user() && $request->user()->id === $user->id) {
+            return back()->with('error', 'Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan.');
+        }
+
+        $user->schedules()->detach();
+        $user->delete();
+
+        return back()->with('success', 'Petugas / User berhasil dihapus.');
     }
 
     public function storeSchedule(Request $request): RedirectResponse

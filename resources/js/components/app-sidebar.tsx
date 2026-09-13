@@ -240,7 +240,7 @@ export function AppSidebar() {
             {isThemeModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                     <div
-                        className="relative max-w-sm w-full border rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+                        className="relative max-w-md w-full border rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200"
                         style={{
                             backgroundColor: 'var(--theme-card, #0f172a)',
                             borderColor: 'var(--theme-border, #1e293b)',
@@ -255,11 +255,11 @@ export function AppSidebar() {
                         >
                             <div className="flex items-center gap-2 text-white font-semibold text-sm">
                                 <Sparkles className="size-4 text-amber-400" />
-                                <span>Pilih Tema Anda</span>
+                                <span>Pilih Tema Anda (14 Tema Pilihan)</span>
                             </div>
                             <button
                                 onClick={() => setIsThemeModalOpen(false)}
-                                className="rounded-lg p-1.5 text-slate-400 hover:text-white"
+                                className="rounded-lg p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
                             >
                                 <X className="size-5" />
                             </button>
@@ -267,18 +267,29 @@ export function AppSidebar() {
 
                         <div className="p-4 space-y-3">
                             <p className="text-xs text-slate-400">
-                                Tema akan otomatis tersimpan di profil akun Anda.
+                                Pilihan tema akan otomatis tersimpan permanen di profil akun Anda.
                             </p>
-                            <ThemeSelector compact />
+                            <ThemeSelector compact onSelect={() => {}} />
                         </div>
 
                         <div
-                            className="p-3 border-t flex justify-end"
-                            style={{ borderColor: 'var(--theme-border, #1e293b)' }}
+                            className="p-3 border-t flex justify-between items-center"
+                            style={{
+                                backgroundColor: 'var(--theme-subcard, #131b2e)',
+                                borderColor: 'var(--theme-border, #1e293b)',
+                            }}
                         >
+                            <Link
+                                href="/settings/appearance"
+                                onClick={() => setIsThemeModalOpen(false)}
+                                className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+                            >
+                                Lihat Halaman Lengkap &rarr;
+                            </Link>
+
                             <button
                                 onClick={() => setIsThemeModalOpen(false)}
-                                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer transition-colors shadow-md"
                             >
                                 Selesai
                             </button>

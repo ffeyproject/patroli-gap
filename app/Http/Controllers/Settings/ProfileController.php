@@ -66,7 +66,7 @@ class ProfileController extends Controller
     public function updateTheme(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'theme' => 'required|string|in:midnight,carbon,cyberpunk,emerald,amber,light',
+            'theme' => 'required|string|in:midnight,carbon,cyberpunk,emerald,amber,crimson,ocean,nordic,blackout,royal,toxic,light,sandstone,rosegold',
         ]);
 
         $request->user()->update([

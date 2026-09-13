@@ -51,6 +51,8 @@ Route::middleware(['auth'])->group(function () {
     // 8. Kelola User & Jadwal
     Route::get('/users', [UserScheduleController::class, 'index'])->name('users.index');
     Route::post('/users/store', [UserScheduleController::class, 'storeUser'])->name('users.store');
+    Route::post('/users/{id}/update', [UserScheduleController::class, 'updateUser'])->name('users.update');
+    Route::delete('/users/{id}', [UserScheduleController::class, 'destroyUser'])->name('users.destroy');
     Route::post('/schedules/store', [UserScheduleController::class, 'storeSchedule'])->name('schedules.store');
     Route::post('/schedules/{id}/update', [UserScheduleController::class, 'updateSchedule'])->name('schedules.update');
     Route::delete('/schedules/{id}', [UserScheduleController::class, 'destroySchedule'])->name('schedules.destroy');

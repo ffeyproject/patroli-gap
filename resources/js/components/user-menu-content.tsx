@@ -1,5 +1,5 @@
 import { Link, router } from '@inertiajs/react';
-import { LogOut, Settings } from 'lucide-react';
+import { LogOut, Palette, Settings } from 'lucide-react';
 import {
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -40,8 +40,19 @@ export function UserMenuContent({ user }: Props) {
                         prefetch
                         onClick={cleanup}
                     >
-                        <Settings className="mr-2" />
-                        Settings
+                        <Settings className="mr-2 size-4" />
+                        Pengaturan Profil
+                    </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <Link
+                        className="block w-full cursor-pointer"
+                        href="/settings/appearance"
+                        prefetch
+                        onClick={cleanup}
+                    >
+                        <Palette className="mr-2 size-4 text-blue-400" />
+                        Tema & Tampilan
                     </Link>
                 </DropdownMenuItem>
             </DropdownMenuGroup>
