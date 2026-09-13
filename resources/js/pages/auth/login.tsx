@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import {
     Eye,
     EyeOff,
     KeyRound,
     Lock,
     Mail,
-    ShieldCheck,
 } from 'lucide-react';
 
 interface Props {
@@ -14,12 +13,12 @@ interface Props {
     canResetPassword?: boolean;
 }
 
-export default function Login({ status }: Props) {
+export default function Login({ status, canResetPassword }: Props) {
     const [showPassword, setShowPassword] = useState(false);
 
     const form = useForm({
-        email: 'superadmin@patroli.id',
-        password: 'password',
+        email: '',
+        password: '',
         remember: true,
     });
 
@@ -27,14 +26,6 @@ export default function Login({ status }: Props) {
         e.preventDefault();
         form.post('/login', {
             onFinish: () => form.reset('password'),
-        });
-    };
-
-    const handleQuickLogin = (email: string) => {
-        form.setData({
-            email: email,
-            password: 'password',
-            remember: true,
         });
     };
 
@@ -76,7 +67,7 @@ export default function Login({ status }: Props) {
 
                         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/80 border border-blue-800/80 text-blue-400 text-[11px] font-semibold">
                             <span className="size-1.5 rounded-full bg-blue-400 animate-pulse" />
-                            Versi 1.0 • Portal Petugas & Admin
+                            Portal Masuk Petugas & Administrator
                         </div>
                     </div>
 
@@ -91,7 +82,7 @@ export default function Login({ status }: Props) {
                         {/* Username / Email Input */}
                         <div>
                             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                                Username / Email / Nomor Badge
+                                Email / Username / Nomor Badge
                             </label>
                             <div className="relative">
                                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -101,7 +92,7 @@ export default function Login({ status }: Props) {
                                     type="text"
                                     required
                                     autoFocus
-                                    placeholder="Contoh: superadmin / agus / SEC-002"
+                                    placeholder="Masukkan email, username, atau badge"
                                     value={form.data.email}
                                     onChange={(e) => form.setData('email', e.target.value)}
                                     className="w-full rounded-xl bg-[#141e33] border border-slate-700/80 pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
@@ -118,6 +109,14 @@ export default function Login({ status }: Props) {
                                 <label className="text-xs font-semibold text-slate-300">
                                     Kata Sandi
                                 </label>
+                                {canResetPassword && (
+                                    <Link
+                                        href="/forgot-password"
+                                        className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+                                    >
+                                        Lupa Sandi?
+                                    </Link>
+                                )}
                             </div>
                             <div className="relative">
                                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -126,7 +125,7 @@ export default function Login({ status }: Props) {
                                 <input
                                     type={showPassword ? 'text' : 'password'}
                                     required
-                                    placeholder="••••••••"
+                                    placeholder="Masukkan kata sandi akun Anda"
                                     value={form.data.password}
                                     onChange={(e) => form.setData('password', e.target.value)}
                                     className="w-full rounded-xl bg-[#141e33] border border-slate-700/80 pl-10 pr-10 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
@@ -144,6 +143,19 @@ export default function Login({ status }: Props) {
                             )}
                         </div>
 
+                        {/* Remember Me Checkbox */}
+                        <div className="flex items-center justify-between py-1">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={form.data.remember}
+                                    onChange={(e) => form.setData('remember', e.target.checked)}
+                                    className="size-4 rounded border-slate-700 bg-[#141e33] text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                                />
+                                <span className="text-xs text-slate-300">Ingat sesi saya di perangkat ini</span>
+                            </label>
+                        </div>
+
                         {/* Submit Button */}
                         <button
                             type="submit"
@@ -151,42 +163,9 @@ export default function Login({ status }: Props) {
                             className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm py-3 shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
                         >
                             <Lock className="size-4" />
-                            <span>{form.processing ? 'Memverifikasi...' : 'Masuk ke Sistem Patroli'}</span>
+                            <span>{form.processing ? 'Memverifikasi...' : 'Masuk ke Sistem'}</span>
                         </button>
                     </form>
-
-                    {/* Quick Demo Credentials Buttons */}
-                    <div className="pt-3 border-t border-slate-800">
-                        <span className="text-[11px] font-semibold text-slate-400 block mb-2 text-center">
-                            Klik untuk Login Cepat (Demo):
-                        </span>
-                        <div className="grid grid-cols-3 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('superadmin@patroli.id')}
-                                className="p-2 rounded-xl bg-[#141e33] hover:bg-[#1a2642] border border-slate-700/70 text-center transition-colors cursor-pointer"
-                            >
-                                <div className="text-[11px] font-bold text-blue-400">Super Admin</div>
-                                <div className="text-[10px] text-slate-400 truncate">Ferry Gilang</div>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('budi@patroli.id')}
-                                className="p-2 rounded-xl bg-[#141e33] hover:bg-[#1a2642] border border-slate-700/70 text-center transition-colors cursor-pointer"
-                            >
-                                <div className="text-[11px] font-bold text-cyan-400">Danru</div>
-                                <div className="text-[10px] text-slate-400 truncate">Budi Santoso</div>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('agus@patroli.id')}
-                                className="p-2 rounded-xl bg-[#141e33] hover:bg-[#1a2642] border border-slate-700/70 text-center transition-colors cursor-pointer"
-                            >
-                                <div className="text-[11px] font-bold text-emerald-400">Satpam</div>
-                                <div className="text-[10px] text-slate-400 truncate">Agus Pratama</div>
-                            </button>
-                        </div>
-                    </div>
                 </div>
             </div>
 

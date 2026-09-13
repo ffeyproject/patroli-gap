@@ -62,7 +62,7 @@ class PatrolController extends Controller
 
         $sessions = $sessionsQuery->paginate(15)->withQueryString();
 
-        // 2. Checkpoints Recap Query
+        // 2. Checkpoints Recap Query with Complete Audit Data
         $checkpointsQuery = Checkpoint::with(['site'])
             ->withCount(['logs' => function ($q) use ($startDate, $endDate) {
                 if (!empty($startDate)) $q->whereDate('scanned_at', '>=', $startDate);
@@ -71,7 +71,7 @@ class PatrolController extends Controller
             ->with(['logs' => function ($q) use ($startDate, $endDate) {
                 if (!empty($startDate)) $q->whereDate('scanned_at', '>=', $startDate);
                 if (!empty($endDate)) $q->whereDate('scanned_at', '<=', $endDate);
-                $q->with('user')->latest('scanned_at')->limit(15);
+                $q->with(['user', 'session'])->latest('scanned_at')->limit(100);
             }]);
 
         if ($siteId) {
@@ -82,6 +82,7 @@ class PatrolController extends Controller
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('code', 'like', "%{$search}%")
                   ->orWhere('qr_token', 'like', "%{$search}%")
+                  ->orWhere('location_description', 'like', "%{$search}%")
                   ->orWhereHas('site', fn($sq) => $sq->where('name', 'like', "%{$search}%"));
             });
         }
@@ -89,37 +90,75 @@ class PatrolController extends Controller
         $checkpointsRecap = $checkpointsQuery->orderBy('site_id')->orderBy('order_index')->get()->map(function ($cp) {
             $lastLog = $cp->logs->first();
             $avgDist = $cp->logs->avg('distance_meters');
+            $minDist = $cp->logs->min('distance_meters');
+            $maxDist = $cp->logs->max('distance_meters');
+
+            $normalScans = $cp->logs->where('condition_status', 'normal')->count();
+            $abnormalScans = $cp->logs->where('condition_status', '!=', 'normal')->count();
+            $validLocScans = $cp->logs->filter(fn($l) => $l->distance_meters <= $cp->max_radius_meters)->count();
+            $invalidLocScans = $cp->logs->filter(fn($l) => $l->distance_meters > $cp->max_radius_meters)->count();
+
+            $uniqueGuards = $cp->logs->map(function ($l) {
+                return [
+                    'name' => $l->user?->name ?? 'Petugas',
+                    'badge' => $l->user?->badge_number ?? '-',
+                ];
+            })->unique('name')->values()->all();
+
+            $statusCompliance = 'not_scanned';
+            if ($cp->logs_count > 0) {
+                $statusCompliance = $abnormalScans > 0 ? 'scanned_with_issue' : 'scanned_normal';
+            }
 
             return [
                 'id' => $cp->id,
                 'name' => $cp->name,
                 'code' => $cp->code,
                 'qr_token' => $cp->qr_token,
+                'location_description' => $cp->location_description ?? '',
                 'site_id' => $cp->site_id,
                 'site_name' => $cp->site?->name ?? '-',
+                'site_code' => $cp->site?->code ?? '-',
                 'max_radius_meters' => $cp->max_radius_meters,
                 'order_index' => $cp->order_index,
-                'is_active' => $cp->is_active,
+                'is_active' => (bool)$cp->is_active,
                 'latitude' => $cp->latitude,
                 'longitude' => $cp->longitude,
                 'total_scans' => $cp->logs_count,
-                'avg_distance_meters' => $avgDist !== null ? round($avgDist, 1) : null,
+                'normal_scans' => $normalScans,
+                'abnormal_scans' => $abnormalScans,
+                'valid_location_scans' => $validLocScans,
+                'invalid_location_scans' => $invalidLocScans,
+                'avg_distance_meters' => $avgDist !== null ? round((float)$avgDist, 1) : null,
+                'min_distance_meters' => $minDist !== null ? round((float)$minDist, 1) : null,
+                'max_distance_meters' => $maxDist !== null ? round((float)$maxDist, 1) : null,
+                'unique_guards' => $uniqueGuards,
+                'status_compliance' => $statusCompliance,
                 'last_scanned_at' => $lastLog ? $lastLog->scanned_at->timezone('Asia/Jakarta')->format('d M Y, H:i') : null,
+                'last_scanned_at_iso' => $lastLog ? $lastLog->scanned_at->toISOString() : null,
                 'last_guard_name' => $lastLog?->user?->name ?? null,
                 'last_guard_badge' => $lastLog?->user?->badge_number ?? null,
                 'last_condition_status' => $lastLog?->condition_status ?? 'normal',
+                'last_notes' => $lastLog?->notes ?? null,
+                'last_distance_meters' => $lastLog ? round((float)$lastLog->distance_meters, 1) : null,
                 'recent_logs' => $cp->logs->map(function ($log) {
                     return [
                         'id' => $log->id,
+                        'session_id' => $log->patrol_session_id,
+                        'round_number' => $log->session?->round_number ?? 1,
                         'scanned_at' => $log->scanned_at->timezone('Asia/Jakarta')->format('d M Y, H:i:s'),
+                        'scanned_at_iso' => $log->scanned_at->toISOString(),
                         'guard_name' => $log->user?->name ?? 'Petugas',
                         'guard_badge' => $log->user?->badge_number ?? '-',
-                        'distance_meters' => $log->distance_meters,
-                        'condition_status' => $log->condition_status,
+                        'latitude' => $log->latitude,
+                        'longitude' => $log->longitude,
+                        'distance_meters' => round((float)$log->distance_meters, 1),
+                        'is_valid_location' => (bool)$log->is_valid_location,
+                        'condition_status' => $log->condition_status ?? 'normal',
                         'selfie_photo_path' => $log->selfie_photo_path,
                         'notes' => $log->notes,
                     ];
-                }),
+                })->values()->all(),
             ];
         });
 
@@ -128,17 +167,19 @@ class PatrolController extends Controller
             ->when(!empty($search), fn($q) => $q->where('name', 'like', "%{$search}%"))
             ->count();
 
-        $totalScans = PatrolLog::when($siteId, function ($q) use ($siteId) {
-            $q->whereHas('checkpoint', fn($cp) => $cp->where('site_id', $siteId));
-        })->when(!empty($startDate), fn($q) => $q->whereDate('scanned_at', '>=', $startDate))
-          ->when(!empty($endDate), fn($q) => $q->whereDate('scanned_at', '<=', $endDate))
-          ->count();
+        $coveredCheckpoints = $checkpointsRecap->where('total_scans', '>', 0)->count();
+        $missedCheckpoints = max(0, $totalCheckpoints - $coveredCheckpoints);
+        $coveragePercentage = $totalCheckpoints > 0 ? round(($coveredCheckpoints / $totalCheckpoints) * 100, 1) : 0;
 
-        $avgDistance = PatrolLog::when($siteId, function ($q) use ($siteId) {
+        $logsQuery = PatrolLog::when($siteId, function ($q) use ($siteId) {
             $q->whereHas('checkpoint', fn($cp) => $cp->where('site_id', $siteId));
         })->when(!empty($startDate), fn($q) => $q->whereDate('scanned_at', '>=', $startDate))
-          ->when(!empty($endDate), fn($q) => $q->whereDate('scanned_at', '<=', $endDate))
-          ->avg('distance_meters');
+          ->when(!empty($endDate), fn($q) => $q->whereDate('scanned_at', '<=', $endDate));
+
+        $totalScans = (clone $logsQuery)->count();
+        $avgDistance = (clone $logsQuery)->avg('distance_meters');
+        $totalAnomalies = (clone $logsQuery)->where('condition_status', '!=', 'normal')->count();
+        $totalOutOfRadius = (clone $logsQuery)->where('is_valid_location', false)->count();
 
         $sites = Site::where('is_active', true)->get(['id', 'name', 'code']);
 
@@ -147,8 +188,13 @@ class PatrolController extends Controller
             'checkpointsRecap' => $checkpointsRecap,
             'metrics' => [
                 'total_checkpoints' => $totalCheckpoints,
+                'covered_checkpoints' => $coveredCheckpoints,
+                'missed_checkpoints' => $missedCheckpoints,
+                'coverage_percentage' => $coveragePercentage,
                 'total_scans' => $totalScans,
-                'avg_distance' => $avgDistance !== null ? round($avgDistance, 1) : 0,
+                'avg_distance' => $avgDistance !== null ? round((float)$avgDistance, 1) : 0,
+                'total_anomalies' => $totalAnomalies,
+                'total_out_of_radius' => $totalOutOfRadius,
             ],
             'sites' => $sites,
             'filters' => [

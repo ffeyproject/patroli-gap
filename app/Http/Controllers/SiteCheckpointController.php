@@ -19,7 +19,7 @@ class SiteCheckpointController extends Controller
     {
         $sites = Site::with(['checkpoints' => function ($q) {
             $q->orderBy('order_index');
-        }])->get()->map(function ($site) {
+        }])->get()->map(function (Site $site) {
             return [
                 'id' => $site->id,
                 'name' => $site->name,
@@ -29,7 +29,7 @@ class SiteCheckpointController extends Controller
                 'longitude' => $site->longitude,
                 'geofence_radius_meters' => $site->geofence_radius_meters,
                 'is_active' => $site->is_active,
-                'checkpoints' => $site->checkpoints->map(function ($cp) {
+                'checkpoints' => $site->checkpoints->map(function (Checkpoint $cp) {
                     return [
                         'id' => $cp->id,
                         'site_id' => $cp->site_id,

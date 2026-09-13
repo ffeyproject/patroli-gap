@@ -3,52 +3,38 @@ import { Head, router } from '@inertiajs/react';
 import {
     Activity,
     AlertCircle,
+    AlertTriangle,
     Calendar,
     CheckCircle2,
     Clock,
+    Download,
     ExternalLink,
     Eye,
+    FileSpreadsheet,
+    FileText,
     Filter,
     Layers,
+    ListFilter,
     MapPin,
     RotateCcw,
     Search,
+    Shield,
+    ShieldAlert,
     ShieldCheck,
+    SlidersHorizontal,
+    TrendingUp,
     User,
+    Users,
     X,
 } from 'lucide-react';
-
-interface CheckpointLog {
-    id: number;
-    scanned_at: string;
-    guard_name: string;
-    guard_badge: string;
-    distance_meters: number;
-    condition_status: string;
-    selfie_photo_path?: string;
-    notes?: string;
-}
-
-interface CheckpointRecap {
-    id: number;
-    name: string;
-    code: string;
-    qr_token: string;
-    site_id: number;
-    site_name: string;
-    max_radius_meters: number;
-    order_index: number;
-    is_active: boolean;
-    latitude: number;
-    longitude: number;
-    total_scans: number;
-    avg_distance_meters: number | null;
-    last_scanned_at: string | null;
-    last_guard_name: string | null;
-    last_guard_badge: string | null;
-    last_condition_status: string;
-    recent_logs: CheckpointLog[];
-}
+import {
+    exportCheckpointsToExcel,
+    CheckpointRecapExport,
+    ExportFilters,
+    ExportMetrics,
+} from '@/lib/patrol-export';
+import CheckpointPdfViewer from '@/components/patrol/CheckpointPdfViewer';
+import CheckpointInspectorModal from '@/components/patrol/CheckpointInspectorModal';
 
 interface SessionData {
     id: number;
@@ -76,11 +62,16 @@ interface Props {
         last_page: number;
         total: number;
     };
-    checkpointsRecap: CheckpointRecap[];
+    checkpointsRecap: CheckpointRecapExport[];
     metrics: {
         total_checkpoints: number;
+        covered_checkpoints?: number;
+        missed_checkpoints?: number;
+        coverage_percentage?: number;
         total_scans: number;
         avg_distance: number;
+        total_anomalies?: number;
+        total_out_of_radius?: number;
     };
     sites: Array<{ id: number; name: string; code: string }>;
     filters: {
@@ -110,9 +101,15 @@ export default function PatrolIndex({
     const [endDate, setEndDate] = useState<string>(filters.end_date || '');
     const [searchQuery, setSearchQuery] = useState<string>(filters.search || '');
 
+    // Status & Condition filters for Recap tab
+    const [recapStatusFilter, setRecapStatusFilter] = useState<'all' | 'covered' | 'missed'>('all');
+    const [recapConditionFilter, setRecapConditionFilter] = useState<'all' | 'normal' | 'issue'>('all');
+
+    // Modals
+    const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
+    const [selectedCheckpointDetail, setSelectedCheckpointDetail] = useState<CheckpointRecapExport | null>(null);
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
     const [imageError, setImageError] = useState<boolean>(false);
-    const [selectedCheckpointDetail, setSelectedCheckpointDetail] = useState<CheckpointRecap | null>(null);
 
     const getPhotoUrl = (path?: string | null): string => {
         if (!path) return '';
@@ -158,11 +155,41 @@ export default function PatrolIndex({
         applyFilter();
     };
 
+    // Quick Date Preset Handlers
     const handleTodayFilter = () => {
-        const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+        const todayStr = new Date().toLocaleDateString('en-CA');
         setStartDate(todayStr);
         setEndDate(todayStr);
         applyFilter({ newStartDate: todayStr, newEndDate: todayStr });
+    };
+
+    const handleYesterdayFilter = () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        const yestStr = d.toLocaleDateString('en-CA');
+        setStartDate(yestStr);
+        setEndDate(yestStr);
+        applyFilter({ newStartDate: yestStr, newEndDate: yestStr });
+    };
+
+    const handleLast7DaysFilter = () => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 6);
+        const startStr = start.toLocaleDateString('en-CA');
+        const endStr = end.toLocaleDateString('en-CA');
+        setStartDate(startStr);
+        setEndDate(endStr);
+        applyFilter({ newStartDate: startStr, newEndDate: endStr });
+    };
+
+    const handleThisMonthFilter = () => {
+        const now = new Date();
+        const startStr = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA');
+        const endStr = now.toLocaleDateString('en-CA');
+        setStartDate(startStr);
+        setEndDate(endStr);
+        applyFilter({ newStartDate: startStr, newEndDate: endStr });
     };
 
     const handleAllDatesFilter = () => {
@@ -177,6 +204,8 @@ export default function PatrolIndex({
         setStartDate(todayStr);
         setEndDate(todayStr);
         setSearchQuery('');
+        setRecapStatusFilter('all');
+        setRecapConditionFilter('all');
         applyFilter({
             newSiteId: '',
             newStartDate: todayStr,
@@ -190,33 +219,66 @@ export default function PatrolIndex({
         applyFilter({ newTab: tab });
     };
 
-    // Client-side search refinement for checkpoints in recap tab if needed
+    // Client-side filtering for Checkpoint Recap table
     const filteredCheckpoints = checkpointsRecap.filter((cp) => {
+        // Status filter (covered vs missed)
+        if (recapStatusFilter === 'covered' && cp.total_scans === 0) return false;
+        if (recapStatusFilter === 'missed' && cp.total_scans > 0) return false;
+
+        // Condition filter
+        if (recapConditionFilter === 'normal' && (cp.abnormal_scans || 0) > 0) return false;
+        if (recapConditionFilter === 'issue' && (cp.abnormal_scans || 0) === 0) return false;
+
+        // Search text refinement
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         return (
             cp.name.toLowerCase().includes(query) ||
             cp.code.toLowerCase().includes(query) ||
             cp.site_name.toLowerCase().includes(query) ||
-            cp.qr_token.toLowerCase().includes(query)
+            cp.qr_token.toLowerCase().includes(query) ||
+            (cp.location_description && cp.location_description.toLowerCase().includes(query)) ||
+            (cp.last_guard_name && cp.last_guard_name.toLowerCase().includes(query))
         );
     });
 
     const isTodayActive = Boolean(filters.is_today);
+    const selectedSiteObj = sites.find((s) => String(s.id) === String(selectedSiteId));
+
+    // Dynamic metrics calculation for recap
+    const totalCp = metrics.total_checkpoints || checkpointsRecap.length;
+    const coveredCp = metrics.covered_checkpoints ?? checkpointsRecap.filter((c) => c.total_scans > 0).length;
+    const missedCp = metrics.missed_checkpoints ?? Math.max(0, totalCp - coveredCp);
+    const coveragePct = metrics.coverage_percentage ?? (totalCp > 0 ? Math.round((coveredCp / totalCp) * 100) : 0);
+
+    const handleTriggerExcelExport = () => {
+        exportCheckpointsToExcel(
+            filteredCheckpoints,
+            metrics,
+            {
+                site_id: selectedSiteId,
+                site_name: selectedSiteObj ? selectedSiteObj.name : 'Semua Site / Gedung',
+                start_date: startDate,
+                end_date: endDate,
+                search: searchQuery,
+                is_today: isTodayActive,
+            }
+        );
+    };
 
     return (
         <div className="min-h-screen bg-[var(--bg-card)]/30 p-4 lg:p-6 text-slate-100 space-y-6">
-            <Head title="Rekap & Log Patroli - Patroli Security PT. Gajah Angkasa Perkasa" />
+            <Head title="Rekap & Audit Patroli - PT. Gajah Angkasa Perkasa" />
 
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
                         <ShieldCheck className="size-7 text-blue-500" />
-                        Rekap & Log Patroli Keamanan
+                        Rekap & Audit Log Patroli Keamanan
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        Sistem pemantauan ronda, log scan QR per titik, audit foto selfie watermark & geofencing radius.
+                        Sistem audit ronda titik checkpoint, verifikasi geofence radius, foto selfie watermark, ekspor Excel & laporan resmi PDF.
                     </p>
                 </div>
 
@@ -243,25 +305,30 @@ export default function PatrolIndex({
                     >
                         <Layers className="size-4" />
                         <span>Rekap per Titik</span>
+                        {missedCp > 0 && (
+                            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                {missedCp} Missed
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
 
-            {/* Active Date Context Badge */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-blue-950/40 border border-blue-800/50 text-xs">
+            {/* Active Date Context & Quick Presets Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-blue-950/40 border border-blue-800/50 text-xs">
                 <div className="flex items-center gap-2 text-blue-300">
                     <Calendar className="size-4 text-blue-400 shrink-0" />
                     {isTodayActive ? (
                         <span>
-                            📅 Menampilkan data <strong>Hari Ini</strong> ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}).
+                            Menampilkan data <strong>Hari Ini</strong> ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}).
                         </span>
                     ) : (startDate || endDate) ? (
                         <span>
-                            📅 Menampilkan data periode <strong>{startDate || 'Awal'}</strong> s/d <strong>{endDate || 'Sekarang'}</strong>.
+                            Menampilkan data periode <strong>{startDate || 'Awal'}</strong> s/d <strong>{endDate || 'Sekarang'}</strong>.
                         </span>
                     ) : (
                         <span>
-                            📅 Menampilkan <strong>Semua Riwayat Data</strong> (tanpa filter tanggal).
+                            Menampilkan <strong>Semua Riwayat Data</strong> (tanpa filter tanggal).
                         </span>
                     )}
                     {filters.search && (
@@ -271,7 +338,8 @@ export default function PatrolIndex({
                     )}
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                {/* Quick Date Presets */}
+                <div className="flex flex-wrap items-center gap-1.5">
                     <button
                         onClick={handleTodayFilter}
                         className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
@@ -281,6 +349,24 @@ export default function PatrolIndex({
                         }`}
                     >
                         Hari Ini
+                    </button>
+                    <button
+                        onClick={handleYesterdayFilter}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                    >
+                        Kemarin
+                    </button>
+                    <button
+                        onClick={handleLast7DaysFilter}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                    >
+                        7 Hari Terakhir
+                    </button>
+                    <button
+                        onClick={handleThisMonthFilter}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                    >
+                        Bulan Ini
                     </button>
                     <button
                         onClick={handleAllDatesFilter}
@@ -295,42 +381,108 @@ export default function PatrolIndex({
                 </div>
             </div>
 
-            {/* Summary Metrics Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4.5 flex items-center justify-between shadow-sm">
-                    <div className="space-y-1">
-                        <span className="text-[11px] font-medium text-slate-400">Total Titik Checkpoint</span>
-                        <div className="text-2xl font-black text-white">{metrics.total_checkpoints}</div>
+            {/* Comprehensive KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
+                {/* Total Checkpoints */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Total Checkpoint</span>
+                        <div className="size-8 rounded-lg bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
+                            <MapPin className="size-4" />
+                        </div>
                     </div>
-                    <div className="size-11 rounded-xl bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
-                        <MapPin className="size-5" />
-                    </div>
-                </div>
-
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4.5 flex items-center justify-between shadow-sm">
-                    <div className="space-y-1">
-                        <span className="text-[11px] font-medium text-slate-400">Total Scan Checkpoint</span>
-                        <div className="text-2xl font-black text-emerald-400">{metrics.total_scans}</div>
-                    </div>
-                    <div className="size-11 rounded-xl bg-emerald-950/70 border border-emerald-800 flex items-center justify-center text-emerald-400">
-                        <CheckCircle2 className="size-5" />
+                    <div className="mt-2">
+                        <div className="text-2xl font-black text-white">{totalCp}</div>
+                        <span className="text-[10px] text-slate-500">Titik aktif terdaftar</span>
                     </div>
                 </div>
 
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4.5 flex items-center justify-between shadow-sm">
-                    <div className="space-y-1">
-                        <span className="text-[11px] font-medium text-slate-400">Rata-rata Jarak Scan</span>
+                {/* Covered Checkpoints */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Titik Terpatroli</span>
+                        <div className="size-8 rounded-lg bg-emerald-950/70 border border-emerald-800 flex items-center justify-center text-emerald-400">
+                            <CheckCircle2 className="size-4" />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-black text-emerald-400">{coveredCp}</span>
+                            <span className="text-xs font-mono text-emerald-500 font-semibold">({coveragePct}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                            <div
+                                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${Math.min(100, coveragePct)}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Missed Checkpoints */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Belum Discan</span>
+                        <div className="size-8 rounded-lg bg-rose-950/70 border border-rose-800 flex items-center justify-center text-rose-400">
+                            <AlertCircle className="size-4" />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-2xl font-black text-rose-400">{missedCp}</div>
+                        <span className="text-[10px] text-rose-400/80">
+                            {missedCp > 0 ? 'Titik perlu dironda' : 'Seluruh titik tercover!'}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Total Scans */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Total Scan</span>
+                        <div className="size-8 rounded-lg bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
+                            <TrendingUp className="size-4" />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-2xl font-black text-blue-400">{metrics.total_scans}x</div>
+                        <span className="text-[10px] text-slate-500">Akumulasi scan periode ini</span>
+                    </div>
+                </div>
+
+                {/* Avg Distance */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Rata-rata Jarak</span>
+                        <div className="size-8 rounded-lg bg-cyan-950/70 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                            <Activity className="size-4" />
+                        </div>
+                    </div>
+                    <div className="mt-2">
                         <div className="text-2xl font-black text-cyan-400">{metrics.avg_distance}m</div>
+                        <span className="text-[10px] text-slate-500">Presisi GPS scanner satpam</span>
                     </div>
-                    <div className="size-11 rounded-xl bg-cyan-950/70 border border-cyan-800 flex items-center justify-center text-cyan-400">
-                        <Activity className="size-5" />
+                </div>
+
+                {/* Total Anomalies / Temuan */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-slate-400">Temuan / Masalah</span>
+                        <div className="size-8 rounded-lg bg-amber-950/70 border border-amber-800 flex items-center justify-center text-amber-400">
+                            <ShieldAlert className="size-4" />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-2xl font-black text-amber-400">
+                            {metrics.total_anomalies ?? 0}
+                        </div>
+                        <span className="text-[10px] text-slate-500">Laporan catatan abnormal</span>
                     </div>
                 </div>
             </div>
 
-            {/* Filters & Search Bar */}
-            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-sm">
-                <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3">
+            {/* Filter Bar & Export Actions */}
+            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
+                <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3 flex-1">
                     <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
                         <Filter className="size-4 text-blue-400" />
                         <span>Filter:</span>
@@ -350,14 +502,14 @@ export default function PatrolIndex({
                         ))}
                     </select>
 
-                    {/* Date Filters */}
+                    {/* Date Range */}
                     <div className="flex items-center gap-2">
                         <input
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
                             className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-                            title="Dari Tanggal (Cari Hari Sebelumnya)"
+                            title="Dari Tanggal"
                         />
                         <span className="text-xs text-slate-500">s/d</span>
                         <input
@@ -381,7 +533,7 @@ export default function PatrolIndex({
                             type="button"
                             onClick={handleResetFilter}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
-                            title="Kembali ke Hari Ini"
+                            title="Reset ke Hari Ini"
                         >
                             <RotateCcw className="size-3.5" />
                             <span>Reset (Hari Ini)</span>
@@ -389,17 +541,40 @@ export default function PatrolIndex({
                     )}
                 </form>
 
-                {/* Global Search Box */}
-                <form onSubmit={handleSearchSubmit} className="relative min-w-[260px] flex-1 lg:max-w-xs">
-                    <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                        type="text"
-                        placeholder="Cari satpam, site, titik, catatan..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                    />
-                </form>
+                {/* Export & Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Search Field */}
+                    <form onSubmit={handleSearchSubmit} className="relative min-w-[220px]">
+                        <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text"
+                            placeholder="Cari satpam, titik, catatan..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                        />
+                    </form>
+
+                    {/* Export Excel Button */}
+                    <button
+                        onClick={handleTriggerExcelExport}
+                        className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/80 text-xs font-semibold shadow-sm transition-all cursor-pointer hover:border-emerald-600"
+                        title="Ekspor rekapitulasi checkpoint ke file Microsoft Excel (.xlsx)"
+                    >
+                        <FileSpreadsheet className="size-4 text-emerald-400" />
+                        <span>Export Excel</span>
+                    </button>
+
+                    {/* PDF Viewer Button */}
+                    <button
+                        onClick={() => setIsPdfViewerOpen(true)}
+                        className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                        title="Buka pratinjau dokumen resmi dan cetak / unduh PDF"
+                    >
+                        <FileText className="size-4 text-white" />
+                        <span>Buka PDF Viewer</span>
+                    </button>
+                </div>
             </div>
 
             {/* ======================================================== */}
@@ -503,6 +678,84 @@ export default function PatrolIndex({
             {/* ======================================================== */}
             {activeTab === 'recap' && (
                 <div className="space-y-4">
+                    {/* Sub-Filters: Status & Condition Pills */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-slate-400 font-medium flex items-center gap-1">
+                                <ListFilter className="size-3.5 text-blue-400" />
+                                Status Titik:
+                            </span>
+                            <button
+                                onClick={() => setRecapStatusFilter('all')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapStatusFilter === 'all'
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-slate-400 hover:text-white border border-slate-700'
+                                }`}
+                            >
+                                Semua Titik ({totalCp})
+                            </button>
+                            <button
+                                onClick={() => setRecapStatusFilter('covered')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapStatusFilter === 'covered'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-emerald-400/90 hover:text-emerald-300 border border-slate-700'
+                                }`}
+                            >
+                                Sudah Discan ({coveredCp})
+                            </button>
+                            <button
+                                onClick={() => setRecapStatusFilter('missed')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapStatusFilter === 'missed'
+                                        ? 'bg-rose-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-rose-400/90 hover:text-rose-300 border border-slate-700'
+                                }`}
+                            >
+                                Belum Discan / Missed ({missedCp})
+                            </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-slate-400 font-medium flex items-center gap-1">
+                                <Shield className="size-3.5 text-amber-400" />
+                                Kondisi:
+                            </span>
+                            <button
+                                onClick={() => setRecapConditionFilter('all')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapConditionFilter === 'all'
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-slate-400 hover:text-white border border-slate-700'
+                                }`}
+                            >
+                                Semua
+                            </button>
+                            <button
+                                onClick={() => setRecapConditionFilter('normal')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapConditionFilter === 'normal'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-slate-300 hover:text-white border border-slate-700'
+                                }`}
+                            >
+                                Normal Saja
+                            </button>
+                            <button
+                                onClick={() => setRecapConditionFilter('issue')}
+                                className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                                    recapConditionFilter === 'issue'
+                                        ? 'bg-amber-600 text-white shadow-sm'
+                                        : 'bg-[#141e33] text-amber-400/90 hover:text-amber-300 border border-slate-700'
+                                }`}
+                            >
+                                Ada Temuan ({metrics.total_anomalies ?? 0})
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Detailed Checkpoint Table */}
                     <div className="rounded-2xl bg-[#0f172a] border border-slate-800 overflow-hidden shadow-sm">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs text-slate-300">
@@ -514,6 +767,7 @@ export default function PatrolIndex({
                                         <th className="px-4 py-3.5 text-center">Toleransi Radius</th>
                                         <th className="px-4 py-3.5 text-center">Frekuensi Scan</th>
                                         <th className="px-4 py-3.5 text-center">Rata-rata Jarak</th>
+                                        <th className="px-4 py-3.5">Status Kepatuhan</th>
                                         <th className="px-4 py-3.5">Scan Terakhir</th>
                                         <th className="px-4 py-3.5 text-center">Aksi</th>
                                     </tr>
@@ -521,30 +775,43 @@ export default function PatrolIndex({
                                 <tbody className="divide-y divide-slate-800/80">
                                     {filteredCheckpoints.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                                                Tidak ada data titik checkpoint yang sesuai filter.
+                                            <td colSpan={9} className="px-4 py-12 text-center text-slate-500 space-y-2">
+                                                <Shield className="size-10 mx-auto text-slate-700" />
+                                                <p className="font-semibold text-slate-400">
+                                                    Tidak ada data titik checkpoint yang sesuai filter.
+                                                </p>
+                                                <p className="text-xs text-slate-600">
+                                                    Coba ubah filter status, site, atau rentang tanggal.
+                                                </p>
                                             </td>
                                         </tr>
                                     ) : (
                                         filteredCheckpoints.map((cp, idx) => (
                                             <tr
                                                 key={cp.id}
-                                                className="hover:bg-slate-800/40 transition-colors"
+                                                className="hover:bg-slate-800/40 transition-colors group"
                                             >
                                                 <td className="px-4 py-3.5 font-mono font-bold text-blue-400 whitespace-nowrap">
                                                     #{cp.order_index || idx + 1} • {cp.code}
                                                 </td>
-                                                <td className="px-4 py-3.5 font-semibold text-white">
-                                                    <div>{cp.name}</div>
+                                                <td className="px-4 py-3.5">
+                                                    <div className="font-semibold text-white group-hover:text-blue-300 transition-colors">
+                                                        {cp.name}
+                                                    </div>
                                                     <div className="font-mono text-[10px] text-slate-500">
                                                         Token: {cp.qr_token}
                                                     </div>
+                                                    {cp.location_description && (
+                                                        <div className="text-[11px] text-slate-400 mt-0.5 line-clamp-1 italic">
+                                                            {cp.location_description}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="px-4 py-3.5 text-slate-300 whitespace-nowrap">
-                                                    {cp.site_name}
+                                                    <span className="font-medium">{cp.site_name}</span>
                                                 </td>
                                                 <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                                                    <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800 font-mono text-[11px] font-semibold">
+                                                    <span className="px-2.5 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-800 font-mono text-[11px] font-semibold">
                                                         Maks {cp.max_radius_meters}m
                                                     </span>
                                                 </td>
@@ -553,7 +820,7 @@ export default function PatrolIndex({
                                                         className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
                                                             cp.total_scans > 0
                                                                 ? 'bg-blue-950 text-blue-300 border border-blue-800'
-                                                                : 'bg-slate-800/70 text-slate-500'
+                                                                : 'bg-rose-950/60 text-rose-400 border border-rose-800/60'
                                                         }`}
                                                     >
                                                         {cp.total_scans}x Scan
@@ -569,13 +836,34 @@ export default function PatrolIndex({
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-3.5 whitespace-nowrap">
+                                                    {cp.total_scans === 0 ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-950/80 text-rose-400 border border-rose-800 text-[10px] font-bold">
+                                                            <AlertCircle className="size-3" />
+                                                            <span>MISSED / 0 SCAN</span>
+                                                        </span>
+                                                    ) : (cp.abnormal_scans || 0) > 0 ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-950/80 text-amber-400 border border-amber-800 text-[10px] font-bold">
+                                                            <AlertTriangle className="size-3" />
+                                                            <span>ADA TEMUAN ({cp.abnormal_scans})</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800 text-[10px] font-bold">
+                                                            <CheckCircle2 className="size-3" />
+                                                            <span>TERCOVER (NORMAL)</span>
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3.5 whitespace-nowrap">
                                                     {cp.last_scanned_at ? (
                                                         <div>
                                                             <div className="font-semibold text-white">
                                                                 {cp.last_scanned_at} WIB
                                                             </div>
-                                                            <div className="text-[10px] text-slate-400">
-                                                                Oleh: <strong className="text-blue-400">{cp.last_guard_name}</strong>
+                                                            <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                                <User className="size-3 text-slate-500" />
+                                                                <span>
+                                                                    Oleh: <strong className="text-blue-400">{cp.last_guard_name}</strong>
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     ) : (
@@ -587,11 +875,11 @@ export default function PatrolIndex({
                                                 <td className="px-4 py-3.5 text-center whitespace-nowrap">
                                                     <button
                                                         onClick={() => setSelectedCheckpointDetail(cp)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-300 hover:text-white border border-slate-700 text-xs font-medium transition-colors cursor-pointer"
-                                                        title="Lihat Detail Riwayat Scan Titik Ini"
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-white border border-blue-500/40 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                                                        title="Lihat Detail Riwayat & Audit Scan Titik Ini"
                                                     >
                                                         <Eye className="size-3.5 text-blue-400" />
-                                                        <span>Detail Log</span>
+                                                        <span>Detail Audit</span>
                                                     </button>
                                                 </td>
                                             </tr>
@@ -605,94 +893,47 @@ export default function PatrolIndex({
             )}
 
             {/* ======================================================== */}
-            {/* Modal Detail Riwayat Checkpoint                          */}
+            {/* Modal Detail & Inspector Riwayat Checkpoint              */}
             {/* ======================================================== */}
-            {selectedCheckpointDetail && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="relative max-w-3xl w-full bg-[#0f172a] border border-slate-700 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-[#131b2e]">
-                            <div>
-                                <div className="flex items-center gap-2 text-white font-bold text-sm">
-                                    <MapPin className="size-5 text-blue-400" />
-                                    <span>Riwayat Scan: {selectedCheckpointDetail.name}</span>
-                                </div>
-                                <div className="text-xs text-slate-400 mt-0.5">
-                                    {selectedCheckpointDetail.site_name} • Kode: {selectedCheckpointDetail.code} • Total:{' '}
-                                    <strong className="text-emerald-400">{selectedCheckpointDetail.total_scans}x Scan</strong>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setSelectedCheckpointDetail(null)}
-                                className="rounded-lg p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                            >
-                                <X className="size-5" />
-                            </button>
-                        </div>
+            <CheckpointInspectorModal
+                checkpoint={selectedCheckpointDetail}
+                onClose={() => setSelectedCheckpointDetail(null)}
+                onOpenPhoto={openPhoto}
+                filters={{
+                    site_id: selectedSiteId,
+                    site_name: selectedSiteObj ? selectedSiteObj.name : 'Semua Site / Gedung',
+                    start_date: startDate,
+                    end_date: endDate,
+                    search: searchQuery,
+                    is_today: isTodayActive,
+                }}
+            />
 
-                        {/* Modal Body: Timeline List of Scans */}
-                        <div className="p-5 overflow-y-auto space-y-3 divide-y divide-slate-800/80">
-                            {selectedCheckpointDetail.recent_logs.length === 0 ? (
-                                <div className="py-12 text-center text-slate-500">
-                                    Belum ada catatan log scan untuk titik checkpoint ini dalam periode yang dipilih.
-                                </div>
-                            ) : (
-                                selectedCheckpointDetail.recent_logs.map((log) => (
-                                    <div
-                                        key={log.id}
-                                        className="pt-3 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                                    >
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-semibold text-white text-xs">
-                                                    {log.guard_name}
-                                                </span>
-                                                <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                                                    {log.guard_badge}
-                                                </span>
-                                                <span
-                                                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                                        log.condition_status === 'normal'
-                                                            ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                                                            : 'bg-amber-950/80 text-amber-400 border border-amber-800'
-                                                    }`}
-                                                >
-                                                    {log.condition_status.toUpperCase()}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
-                                                <span>Waktu: <strong className="text-white">{log.scanned_at} WIB</strong></span>
-                                                <span>Jarak: <strong className="text-emerald-400">{log.distance_meters}m</strong></span>
-                                            </div>
-                                            {log.notes && (
-                                                <p className="text-xs text-slate-300 italic bg-[#141e33] p-2 rounded-lg mt-1">
-                                                    &ldquo;{log.notes}&rdquo;
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {log.selfie_photo_path && (
-                                            <button
-                                                onClick={() => openPhoto(log.selfie_photo_path)}
-                                                className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-semibold transition-colors cursor-pointer"
-                                            >
-                                                <Eye className="size-3.5" />
-                                                <span>Lihat Foto Watermark</span>
-                                            </button>
-                                        )}
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* ======================================================== */}
+            {/* Interactive Official PDF Document Viewer Modal           */}
+            {/* ======================================================== */}
+            <CheckpointPdfViewer
+                isOpen={isPdfViewerOpen}
+                onClose={() => setIsPdfViewerOpen(false)}
+                checkpoints={filteredCheckpoints}
+                metrics={metrics}
+                filters={{
+                    site_id: selectedSiteId,
+                    site_name: selectedSiteObj ? selectedSiteObj.name : 'Semua Site / Gedung',
+                    start_date: startDate,
+                    end_date: endDate,
+                    search: searchQuery,
+                    is_today: isTodayActive,
+                }}
+                onExportExcel={handleTriggerExcelExport}
+                onOpenPhoto={openPhoto}
+            />
 
             {/* ======================================================== */}
             {/* Modal Preview Foto Selfie Ber-watermark                   */}
             {/* ======================================================== */}
             {selectedPhoto && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
                     <div className="relative max-w-2xl w-full bg-[#0f172a] border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
                         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-[#131b2e]">
                             <div className="flex items-center gap-2 text-white font-semibold text-sm">

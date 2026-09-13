@@ -30,26 +30,41 @@ class Site extends Model
         ];
     }
 
+    /**
+     * @return HasMany<Checkpoint, $this>
+     */
     public function checkpoints(): HasMany
     {
         return $this->hasMany(Checkpoint::class)->orderBy('order_index');
     }
 
+    /**
+     * @return HasMany<PatrolSchedule, $this>
+     */
     public function schedules(): HasMany
     {
         return $this->hasMany(PatrolSchedule::class);
     }
 
+    /**
+     * @return HasMany<PatrolSession, $this>
+     */
     public function sessions(): HasMany
     {
         return $this->hasMany(PatrolSession::class);
     }
 
+    /**
+     * @return HasMany<Incident, $this>
+     */
     public function incidents(): HasMany
     {
         return $this->hasMany(Incident::class);
     }
 
+    /**
+     * @return HasMany<Visitor, $this>
+     */
     public function visitors(): HasMany
     {
         return $this->hasMany(Visitor::class);

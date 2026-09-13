@@ -1,15 +1,20 @@
 import { useState } from 'react';
 import { Head, router, useForm } from '@inertiajs/react';
 import {
+    AlertTriangle,
     Download,
     Edit2,
+    Layers,
     LocateFixed,
     MapPin,
+    Moon,
     Pencil,
     Plus,
     Printer,
     QrCode,
     Shield,
+    Sparkles,
+    Sun,
     Trash2,
     X,
 } from 'lucide-react';
@@ -57,6 +62,10 @@ export default function SitesIndex({ sites }: Props) {
     const [isEditCheckpointModalOpen, setIsEditCheckpointModalOpen] = useState(false);
     const [editingCheckpoint, setEditingCheckpoint] = useState<Checkpoint | null>(null);
     const [selectedQrCheckpoint, setSelectedQrCheckpoint] = useState<Checkpoint | null>(null);
+
+    // QR Print Color Theme ('high-contrast' | 'night-reflective' | 'safety-yellow')
+    const [qrColorTheme, setQrColorTheme] = useState<'high-contrast' | 'night-reflective' | 'safety-yellow'>('night-reflective');
+    const [isBatchPrintOpen, setIsBatchPrintOpen] = useState(false);
 
     // GPS Loading states
     const [isDetectingAddSiteGps, setIsDetectingAddSiteGps] = useState(false);
@@ -307,7 +316,17 @@ export default function SitesIndex({ sites }: Props) {
                         <div className="flex flex-wrap items-center gap-4">
                             <span>Koordinat: <strong className="text-white font-mono">{activeSite.latitude ?? '-'}, {activeSite.longitude ?? '-'}</strong></span>
                             <span>Radius Geofence: <strong className="text-emerald-400">{activeSite.geofence_radius_meters}m</strong></span>
-                            <div className="flex items-center gap-2 border-l border-slate-700/60 pl-3">
+                            <div className="flex flex-wrap items-center gap-2 border-l border-slate-700/60 pl-3">
+                                {activeSite.checkpoints && activeSite.checkpoints.length > 0 && (
+                                    <button
+                                        onClick={() => setIsBatchPrintOpen(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white border border-blue-500 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                                        title="Cetak seluruh stiker QR checkpoint pada site ini sekaligus"
+                                    >
+                                        <Printer className="size-3.5" />
+                                        <span>Cetak Semua QR ({activeSite.checkpoints.length})</span>
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => openEditSite(activeSite)}
                                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors cursor-pointer"
@@ -1010,25 +1029,30 @@ export default function SitesIndex({ sites }: Props) {
             )}
 
             {/* ======================================================== */}
-            {/* Modal 5: Cetak QR Code Titik Patroli                     */}
+            {/* Modal 5: Cetak QR Code Titik Patroli (Single & Batch)   */}
             {/* ======================================================== */}
-            {selectedQrCheckpoint && (
-                <div id="printable-qr-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
-                    {/* Print Specific CSS for exact 1-page printing */}
+            {(selectedQrCheckpoint || isBatchPrintOpen) && (
+                <div id="printable-qr-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-3 sm:p-4 overflow-y-auto">
+                    {/* Print Specific CSS for high-visibility & exact sticker printing */}
                     <style>{`
                         @page {
-                            size: portrait;
-                            margin: 10mm;
+                            size: A4 portrait;
+                            margin: 8mm;
                         }
                         @media print {
+                            * {
+                                -webkit-print-color-adjust: exact !important;
+                                print-color-adjust: exact !important;
+                                color-adjust: exact !important;
+                            }
                             html, body {
-                                height: 100% !important;
-                                max-height: 100% !important;
-                                overflow: hidden !important;
+                                height: auto !important;
+                                overflow: visible !important;
                                 background: #ffffff !important;
                                 color: #000000 !important;
                                 margin: 0 !important;
                                 padding: 0 !important;
+                                font-family: Arial, Helvetica, sans-serif !important;
                             }
                             body * {
                                 visibility: hidden !important;
@@ -1043,29 +1067,20 @@ export default function SitesIndex({ sites }: Props) {
                                 top: 0 !important;
                                 width: 100% !important;
                                 height: auto !important;
-                                background: #ffffff !important;
-                                display: flex !important;
-                                align-items: center !important;
-                                justify-content: center !important;
+                                background: transparent !important;
+                                display: block !important;
                                 padding: 0 !important;
                                 margin: 0 !important;
                                 z-index: 999999 !important;
-                                page-break-inside: avoid !important;
-                                page-break-after: avoid !important;
-                                break-inside: avoid !important;
                             }
-                            #printable-qr-card {
+                            .printable-qr-card-item {
                                 position: relative !important;
-                                border: 2.5px solid #0f172a !important;
                                 box-shadow: none !important;
-                                max-width: 380px !important;
+                                max-width: 440px !important;
                                 width: 100% !important;
-                                border-radius: 24px !important;
-                                padding: 24px !important;
-                                background: #ffffff !important;
-                                margin: 0 auto !important;
+                                margin: 0 auto 20px auto !important;
                                 page-break-inside: avoid !important;
-                                page-break-after: avoid !important;
+                                page-break-after: auto !important;
                                 break-inside: avoid !important;
                             }
                             .no-print {
@@ -1074,72 +1089,304 @@ export default function SitesIndex({ sites }: Props) {
                         }
                     `}</style>
 
-                    <div id="printable-qr-card" className="relative max-w-sm w-full bg-white text-slate-900 rounded-3xl overflow-hidden shadow-2xl p-6 text-center space-y-4">
-                        {/* Header (Hidden on Print) */}
-                        <div className="no-print flex items-center justify-between pb-3 border-b border-slate-200">
-                            <span className="text-xs font-bold text-slate-500 tracking-wider uppercase">
-                                STIKER CHECKPOINT PATROLI
-                            </span>
-                            <button
-                                onClick={() => setSelectedQrCheckpoint(null)}
-                                className="rounded-full p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-                            >
-                                <X className="size-5" />
-                            </button>
-                        </div>
+                    <div className="relative max-w-2xl w-full flex flex-col items-center space-y-4 max-h-[92vh] overflow-y-auto p-2">
+                        {/* Top Control Bar (Hidden on Print) */}
+                        <div className="no-print w-full bg-[#0f172a] border border-slate-700 rounded-2xl p-4 shadow-xl space-y-3 shrink-0">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="size-8 rounded-lg bg-blue-950 border border-blue-800 flex items-center justify-center text-blue-400">
+                                        <QrCode className="size-4" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-white">
+                                            {isBatchPrintOpen
+                                                ? `Cetak Seluruh Stiker QR (${activeSite.checkpoints.length} Titik) • ${activeSite.name}`
+                                                : `Cetak Stiker QR • ${selectedQrCheckpoint?.code}`}
+                                        </h3>
+                                        <p className="text-[11px] text-slate-400">
+                                            Pilih mode kontras warna agar tetap terbaca sangat jelas di malam hari / area gelap.
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setSelectedQrCheckpoint(null);
+                                        setIsBatchPrintOpen(false);
+                                    }}
+                                    className="rounded-xl p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title="Tutup"
+                                >
+                                    <X className="size-5" />
+                                </button>
+                            </div>
 
-                        <div>
-                            <h2 className="text-xl font-black text-slate-900 leading-tight">
-                                {selectedQrCheckpoint.name}
-                            </h2>
-                            <p className="text-xs font-mono font-bold text-blue-600 mt-1">
-                                {activeSite.name} • {selectedQrCheckpoint.code}
-                            </p>
-                        </div>
+                            {/* Theme Selector Pills */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-slate-400 font-semibold flex items-center gap-1">
+                                        <Sparkles className="size-3.5 text-yellow-400" />
+                                        Kontras Cetak:
+                                    </span>
+                                    <button
+                                        onClick={() => setQrColorTheme('night-reflective')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                                            qrColorTheme === 'night-reflective'
+                                                ? 'bg-yellow-400 text-black shadow-md shadow-yellow-400/20'
+                                                : 'bg-black text-yellow-400 border border-yellow-500/60 hover:bg-slate-900'
+                                        }`}
+                                    >
+                                        <Moon className="size-3.5" />
+                                        <span>🌙 Reflektif Malam (High Glow)</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setQrColorTheme('high-contrast')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                                            qrColorTheme === 'high-contrast'
+                                                ? 'bg-white text-black shadow-md'
+                                                : 'bg-[#141e33] text-slate-300 border border-slate-700 hover:text-white'
+                                        }`}
+                                    >
+                                        <Sun className="size-3.5" />
+                                        <span>☀️ Putih Kontras Tinggi</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setQrColorTheme('safety-yellow')}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                                            qrColorTheme === 'safety-yellow'
+                                                ? 'bg-yellow-500 text-black shadow-md'
+                                                : 'bg-[#141e33] text-yellow-300 border border-yellow-600/60 hover:text-white'
+                                        }`}
+                                    >
+                                        <AlertTriangle className="size-3.5" />
+                                        <span>⚠️ Kuning Safety K3</span>
+                                    </button>
+                                </div>
 
-                        {/* Printable QR Display */}
-                        <div className="p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center">
-                            <img
-                                src={selectedQrCheckpoint.qr_image_url}
-                                alt="QR Code Checkpoint"
-                                className="size-48 object-contain rounded-lg"
-                            />
-                            <span className="text-[11px] font-mono font-bold text-slate-700 mt-2">
-                                Token: {selectedQrCheckpoint.qr_token}
-                            </span>
-                        </div>
-
-                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium">
-                            <div>Radius Toleransi: <strong>Maks {selectedQrCheckpoint.max_radius_meters ?? 10} Meter</strong></div>
-                            <div className="font-mono text-[10px] text-slate-500">
-                                GPS: {selectedQrCheckpoint.latitude}, {selectedQrCheckpoint.longitude}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handlePrintQr}
+                                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-95 cursor-pointer"
+                                    >
+                                        <Printer className="size-4" />
+                                        <span>Cetak Sekarang</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Print Footer Watermark */}
-                        <div className="hidden print:block pt-3 border-t border-slate-200 text-[10px] text-slate-500 font-medium">
-                            Patroli Security PT. Gajah Angkasa Perkasa • Sistem Pemantauan & Patroli
-                        </div>
+                        {/* QR Sticker Container (Printed Items) */}
+                        <div className="w-full flex flex-col items-center space-y-6">
+                            {(isBatchPrintOpen ? activeSite.checkpoints : (selectedQrCheckpoint ? [selectedQrCheckpoint] : [])).map((cp, cpIdx) => {
+                                const isNightReflective = qrColorTheme === 'night-reflective';
+                                const isSafetyYellow = qrColorTheme === 'safety-yellow';
 
-                        {/* Actions Button Bar (Hidden on Print) */}
-                        <div className="no-print flex items-center gap-2 pt-2">
-                            <button
-                                onClick={handlePrintQr}
-                                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white py-2.5 text-xs font-bold shadow-md transition-colors cursor-pointer"
-                            >
-                                <Printer className="size-4" />
-                                <span>Cetak Stiker QR</span>
-                            </button>
-                            <a
-                                href={selectedQrCheckpoint.qr_image_url}
-                                download={`qr_${selectedQrCheckpoint.code}.png`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 p-2.5 text-xs font-semibold cursor-pointer"
-                                title="Download Gambar QR"
-                            >
-                                <Download className="size-4" />
-                            </a>
+                                return (
+                                    <div
+                                        key={cp.id || cpIdx}
+                                        className={`printable-qr-card-item relative max-w-md w-full rounded-3xl overflow-hidden shadow-2xl p-6 sm:p-7 text-center space-y-4 transition-all duration-200 ${
+                                            isNightReflective
+                                                ? 'bg-black text-white border-4 border-yellow-400'
+                                                : isSafetyYellow
+                                                ? 'bg-yellow-400 text-black border-4 border-black'
+                                                : 'bg-white text-black border-4 border-black'
+                                        }`}
+                                    >
+                                        {/* Top Branding Section */}
+                                        <div
+                                            className={`flex items-center justify-center gap-3 pb-3 border-b-4 ${
+                                                isNightReflective
+                                                    ? 'border-yellow-400'
+                                                    : 'border-black'
+                                            }`}
+                                        >
+                                            <div className="size-12 rounded-xl bg-blue-900 border-2 border-white flex items-center justify-center text-white font-black text-lg tracking-tighter shrink-0">
+                                                GAP
+                                            </div>
+                                            <div className="text-left">
+                                                <div
+                                                    className={`text-base sm:text-lg font-black uppercase tracking-tight leading-none ${
+                                                        isNightReflective ? 'text-white' : 'text-black'
+                                                    }`}
+                                                >
+                                                    PT. GAJAH ANGKASA PERKASA
+                                                </div>
+                                                <div
+                                                    className={`text-xs font-black uppercase tracking-wider mt-0.5 ${
+                                                        isNightReflective ? 'text-cyan-300' : 'text-black'
+                                                    }`}
+                                                >
+                                                    SECURITY & PATROL CHECKPOINT
+                                                </div>
+                                                <div
+                                                    className={`text-[10px] font-extrabold ${
+                                                        isNightReflective ? 'text-yellow-300' : 'text-black'
+                                                    }`}
+                                                >
+                                                    Sistem Pengamanan & Monitoring Digital
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* High Visibility Point Code Badge */}
+                                        <div
+                                            className={`rounded-2xl p-3 shadow-md space-y-0.5 ${
+                                                isNightReflective
+                                                    ? 'bg-slate-900 border-2 border-yellow-400 text-white'
+                                                    : isSafetyYellow
+                                                    ? 'bg-black text-yellow-300'
+                                                    : 'bg-black text-white'
+                                            }`}
+                                        >
+                                            <div
+                                                className={`text-xs font-black uppercase tracking-widest ${
+                                                    isNightReflective ? 'text-cyan-300' : 'text-yellow-300'
+                                                }`}
+                                            >
+                                                {activeSite.name} • TITIK KE-{cp.order_index || cpIdx + 1}
+                                            </div>
+                                            <div className="text-3xl sm:text-4xl font-black text-yellow-300 tracking-widest drop-shadow-sm">
+                                                {cp.code}
+                                            </div>
+                                        </div>
+
+                                        {/* Checkpoint Name (Big & Bold) */}
+                                        <div className="px-1">
+                                            <h2
+                                                className={`text-2xl sm:text-3xl font-black leading-tight uppercase tracking-tight ${
+                                                    isNightReflective
+                                                        ? 'text-white'
+                                                        : 'text-black'
+                                                }`}
+                                            >
+                                                {cp.name}
+                                            </h2>
+                                            {cp.location_description && (
+                                                <p
+                                                    className={`text-xs font-black mt-1 italic p-1.5 rounded-lg ${
+                                                        isNightReflective
+                                                            ? 'text-cyan-200 bg-slate-900/90 border border-cyan-400/50'
+                                                            : isSafetyYellow
+                                                            ? 'text-black bg-yellow-200/90 border border-black'
+                                                            : 'text-black bg-yellow-50 border border-black'
+                                                    }`}
+                                                >
+                                                    &ldquo;{cp.location_description}&rdquo;
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {/* High Quality & Large QR Code Frame */}
+                                        <div
+                                            className={`p-4 rounded-2xl flex flex-col items-center justify-center space-y-2.5 shadow-sm bg-white ${
+                                                isNightReflective
+                                                    ? 'border-4 border-yellow-400'
+                                                    : 'border-4 border-black'
+                                            }`}
+                                        >
+                                            <img
+                                                src={cp.qr_image_url}
+                                                alt={`QR Code ${cp.code}`}
+                                                className="size-56 sm:size-60 object-contain"
+                                            />
+
+                                            <div className="inline-block bg-black text-white text-[11px] font-black px-3.5 py-1 rounded-lg uppercase tracking-wider">
+                                                SCAN MENGGUNAKAN APLIKASI SATPAM GAP
+                                            </div>
+
+                                            <div className="text-base font-mono font-black text-black tracking-widest uppercase">
+                                                TOKEN: {cp.qr_token}
+                                            </div>
+                                        </div>
+
+                                        {/* Strict Geofence & Parameter Details */}
+                                        <div
+                                            className={`grid grid-cols-2 gap-2 text-left rounded-xl p-3 font-black text-xs ${
+                                                isNightReflective
+                                                    ? 'bg-slate-900 border-2 border-yellow-400 text-white'
+                                                    : isSafetyYellow
+                                                    ? 'bg-yellow-200/90 border-2 border-black text-black'
+                                                    : 'bg-slate-50 border-2 border-black text-black'
+                                            }`}
+                                        >
+                                            <div>
+                                                <div
+                                                    className={`text-[10px] uppercase font-bold ${
+                                                        isNightReflective ? 'text-cyan-300' : 'text-black'
+                                                    }`}
+                                                >
+                                                    Radius Maksimal:
+                                                </div>
+                                                <div
+                                                    className={`text-sm font-black ${
+                                                        isNightReflective ? 'text-yellow-300' : 'text-black'
+                                                    }`}
+                                                >
+                                                    {cp.max_radius_meters ?? 10} METER
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div
+                                                    className={`text-[10px] uppercase font-bold ${
+                                                        isNightReflective ? 'text-cyan-300' : 'text-black'
+                                                    }`}
+                                                >
+                                                    Status Titik:
+                                                </div>
+                                                <div className="text-sm font-black text-emerald-400 uppercase">
+                                                    {cp.is_active ? 'AKTIF BEROPERASI' : 'NON-AKTIF'}
+                                                </div>
+                                            </div>
+                                            <div
+                                                className={`col-span-2 pt-1 border-t font-mono text-[11px] font-black ${
+                                                    isNightReflective
+                                                        ? 'border-slate-700 text-cyan-300'
+                                                        : 'border-black text-black'
+                                                }`}
+                                            >
+                                                GPS: {cp.latitude}, {cp.longitude}
+                                            </div>
+                                        </div>
+
+                                        {/* Print Footer Notice */}
+                                        <div
+                                            className={`pt-2 border-t-2 text-center space-y-0.5 ${
+                                                isNightReflective ? 'border-yellow-400' : 'border-black'
+                                            }`}
+                                        >
+                                            <div
+                                                className={`text-[10px] font-black uppercase tracking-tight ${
+                                                    isNightReflective ? 'text-yellow-300' : 'text-black'
+                                                }`}
+                                            >
+                                                ⚠️ DILARANG MELEPAS, MERUSAK, ATAU MEMINDAHKAN STIKER CHECKPOINT INI
+                                            </div>
+                                            <div
+                                                className={`text-[9px] font-black uppercase ${
+                                                    isNightReflective ? 'text-slate-300' : 'text-black'
+                                                }`}
+                                            >
+                                                Divisi Pengamanan & Patroli • PT. Gajah Angkasa Perkasa
+                                            </div>
+                                        </div>
+
+                                        {/* Action download button for single mode */}
+                                        {!isBatchPrintOpen && (
+                                            <div className="no-print pt-2 flex items-center justify-center">
+                                                <a
+                                                    href={cp.qr_image_url}
+                                                    download={`QR_${activeSite.code}_${cp.code}.png`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 underline"
+                                                >
+                                                    <Download className="size-4" />
+                                                    <span>Unduh Gambar PNG Resolusi Tinggi</span>
+                                                </a>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
