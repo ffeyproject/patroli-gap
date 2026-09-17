@@ -26,9 +26,9 @@ class PatrolController extends Controller
         $siteId = $request->query('site_id');
         $today = now()->timezone('Asia/Jakarta')->toDateString();
 
-        // Default to today if no date filter is provided
-        $startDate = $request->has('start_date') ? $request->query('start_date') : $today;
-        $endDate = $request->has('end_date') ? $request->query('end_date') : $today;
+        // Date filters: Only filter if explicitly specified by the user
+        $startDate = $request->filled('start_date') ? $request->query('start_date') : null;
+        $endDate = $request->filled('end_date') ? $request->query('end_date') : null;
         $search = $request->query('search');
         $activeTab = $request->query('tab', 'sessions');
 

@@ -139,8 +139,8 @@ export default function PatrolIndex({
             {
                 tab: params?.newTab ?? activeTab,
                 site_id: params?.newSiteId !== undefined ? (params.newSiteId || undefined) : (selectedSiteId || undefined),
-                start_date: params?.newStartDate !== undefined ? params.newStartDate : (startDate || undefined),
-                end_date: params?.newEndDate !== undefined ? params.newEndDate : (endDate || undefined),
+                start_date: params?.newStartDate !== undefined ? (params.newStartDate || undefined) : (startDate || undefined),
+                end_date: params?.newEndDate !== undefined ? (params.newEndDate || undefined) : (endDate || undefined),
                 search: params?.newSearch !== undefined ? (params.newSearch || undefined) : (searchQuery || undefined),
             },
             {
@@ -199,17 +199,16 @@ export default function PatrolIndex({
     };
 
     const handleResetFilter = () => {
-        const todayStr = new Date().toLocaleDateString('en-CA');
         setSelectedSiteId('');
-        setStartDate(todayStr);
-        setEndDate(todayStr);
+        setStartDate('');
+        setEndDate('');
         setSearchQuery('');
         setRecapStatusFilter('all');
         setRecapConditionFilter('all');
         applyFilter({
             newSiteId: '',
-            newStartDate: todayStr,
-            newEndDate: todayStr,
+            newStartDate: '',
+            newEndDate: '',
             newSearch: '',
         });
     };
@@ -528,15 +527,15 @@ export default function PatrolIndex({
                         <span>Terapkan</span>
                     </button>
 
-                    {(selectedSiteId || !isTodayActive || searchQuery) && (
+                    {(selectedSiteId || startDate || endDate || searchQuery) && (
                         <button
                             type="button"
                             onClick={handleResetFilter}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
-                            title="Reset ke Hari Ini"
+                            title="Reset Semua Filter"
                         >
                             <RotateCcw className="size-3.5" />
-                            <span>Reset (Hari Ini)</span>
+                            <span>Reset Filter</span>
                         </button>
                     )}
                 </form>

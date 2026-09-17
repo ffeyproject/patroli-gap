@@ -345,9 +345,8 @@ class PatrolApiController extends Controller
     public function checkpointRecap(Request $request): JsonResponse
     {
         $siteId = $request->query('site_id');
-        $today = now()->timezone('Asia/Jakarta')->toDateString();
-        $startDate = $request->has('start_date') ? $request->query('start_date') : $today;
-        $endDate = $request->has('end_date') ? $request->query('end_date') : $today;
+        $startDate = $request->filled('start_date') ? $request->query('start_date') : null;
+        $endDate = $request->filled('end_date') ? $request->query('end_date') : null;
 
         $checkpointsQuery = Checkpoint::with(['site'])
             ->withCount(['logs' => function ($q) use ($startDate, $endDate) {
