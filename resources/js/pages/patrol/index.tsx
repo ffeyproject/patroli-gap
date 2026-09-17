@@ -237,7 +237,14 @@ export default function PatrolIndex({
             cp.site_name.toLowerCase().includes(query) ||
             cp.qr_token.toLowerCase().includes(query) ||
             (cp.location_description && cp.location_description.toLowerCase().includes(query)) ||
-            (cp.last_guard_name && cp.last_guard_name.toLowerCase().includes(query))
+            (cp.last_guard_name && cp.last_guard_name.toLowerCase().includes(query)) ||
+            (cp.last_scanned_at && cp.last_scanned_at.toLowerCase().includes(query)) ||
+            (cp.last_notes && cp.last_notes.toLowerCase().includes(query)) ||
+            (cp.recent_logs && cp.recent_logs.some((l) =>
+                (l.scanned_at && l.scanned_at.toLowerCase().includes(query)) ||
+                (l.guard_name && l.guard_name.toLowerCase().includes(query)) ||
+                (l.notes && l.notes.toLowerCase().includes(query))
+            ))
         );
     });
 

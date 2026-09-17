@@ -45,18 +45,37 @@ class PatrolController extends Controller
         if (!empty($endDate)) {
             $sessionsQuery->whereDate('started_at', '<=', $endDate);
         }
+        $driver = DB::connection()->getDriverName();
+        $likeOp = $driver === 'pgsql' ? 'ilike' : 'like';
+
         if (!empty($search)) {
-            $sessionsQuery->where(function ($q) use ($search) {
-                $q->whereHas('user', function ($uq) use ($search) {
-                    $uq->where('name', 'like', "%{$search}%")
-                       ->orWhere('badge_number', 'like', "%{$search}%");
-                })->orWhereHas('site', function ($sq) use ($search) {
-                    $sq->where('name', 'like', "%{$search}%")
-                       ->orWhere('code', 'like', "%{$search}%");
-                })->orWhere('notes', 'like', "%{$search}%")
-                  ->orWhereHas('logs.checkpoint', function ($cq) use ($search) {
-                      $cq->where('name', 'like', "%{$search}%");
+            $sessionsQuery->where(function ($q) use ($search, $likeOp, $driver) {
+                $q->whereHas('user', function ($uq) use ($search, $likeOp) {
+                    $uq->where('name', $likeOp, "%{$search}%")
+                       ->orWhere('badge_number', $likeOp, "%{$search}%");
+                })->orWhereHas('site', function ($sq) use ($search, $likeOp) {
+                    $sq->where('name', $likeOp, "%{$search}%")
+                       ->orWhere('code', $likeOp, "%{$search}%");
+                })->orWhere('notes', $likeOp, "%{$search}%")
+                  ->orWhere('status', $likeOp, "%{$search}%")
+                  ->orWhereRaw("CAST(round_number AS TEXT) {$likeOp} ?", ["%{$search}%"])
+                  ->orWhereHas('logs.checkpoint', function ($cq) use ($search, $likeOp) {
+                      $cq->where('name', $likeOp, "%{$search}%")
+                         ->orWhere('code', $likeOp, "%{$search}%");
                   });
+
+                if ($driver === 'pgsql') {
+                    $q->orWhereRaw("TO_CHAR(started_at, 'YYYY-MM-DD HH24:MI:SS') ILIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("TO_CHAR(started_at, 'DD/MM/YYYY') ILIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("TO_CHAR(started_at, 'DD-MM-YYYY') ILIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("TO_CHAR(started_at, 'DD Month YYYY') ILIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("TO_CHAR(started_at, 'FMDD') ILIKE ?", ["%{$search}%"]);
+                } else {
+                    $q->orWhereRaw("DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') LIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("DATE_FORMAT(started_at, '%d/%m/%Y') LIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("DATE_FORMAT(started_at, '%d-%m-%Y') LIKE ?", ["%{$search}%"])
+                      ->orWhereRaw("DATE_FORMAT(started_at, '%e') LIKE ?", ["%{$search}%"]);
+                }
             });
         }
 
@@ -78,12 +97,26 @@ class PatrolController extends Controller
             $checkpointsQuery->where('site_id', $siteId);
         }
         if (!empty($search)) {
-            $checkpointsQuery->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('qr_token', 'like', "%{$search}%")
-                  ->orWhere('location_description', 'like', "%{$search}%")
-                  ->orWhereHas('site', fn($sq) => $sq->where('name', 'like', "%{$search}%"));
+            $checkpointsQuery->where(function ($q) use ($search, $likeOp, $driver) {
+                $q->where('name', $likeOp, "%{$search}%")
+                  ->orWhere('code', $likeOp, "%{$search}%")
+                  ->orWhere('qr_token', $likeOp, "%{$search}%")
+                  ->orWhere('location_description', $likeOp, "%{$search}%")
+                  ->orWhereHas('site', fn($sq) => $sq->where('name', $likeOp, "%{$search}%"))
+                  ->orWhereHas('logs', function ($lq) use ($search, $likeOp, $driver) {
+                      $lq->whereHas('user', fn($uq) => $uq->where('name', $likeOp, "%{$search}%"))
+                         ->orWhere('notes', $likeOp, "%{$search}%");
+                      if ($driver === 'pgsql') {
+                          $lq->orWhereRaw("TO_CHAR(scanned_at, 'YYYY-MM-DD HH24:MI:SS') ILIKE ?", ["%{$search}%"])
+                             ->orWhereRaw("TO_CHAR(scanned_at, 'DD/MM/YYYY') ILIKE ?", ["%{$search}%"])
+                             ->orWhereRaw("TO_CHAR(scanned_at, 'DD-MM-YYYY') ILIKE ?", ["%{$search}%"])
+                             ->orWhereRaw("TO_CHAR(scanned_at, 'FMDD') ILIKE ?", ["%{$search}%"]);
+                      } else {
+                          $lq->orWhereRaw("DATE_FORMAT(scanned_at, '%Y-%m-%d') LIKE ?", ["%{$search}%"])
+                             ->orWhereRaw("DATE_FORMAT(scanned_at, '%d/%m/%Y') LIKE ?", ["%{$search}%"])
+                             ->orWhereRaw("DATE_FORMAT(scanned_at, '%d') LIKE ?", ["%{$search}%"]);
+                      }
+                  });
             });
         }
 
