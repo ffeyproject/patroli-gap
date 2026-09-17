@@ -11,6 +11,7 @@ use App\Services\GeofenceService;
 use App\Services\WatermarkService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,19 +33,82 @@ class PatrolController extends Controller
         $endDate = $request->filled('end_date') ? $request->query('end_date') : null;
         $search = $request->query('search');
         $activeTab = $request->query('tab', 'sessions');
+        $showAll = $request->query('show_all') === '1' || $request->query('all_dates') === '1';
+
+        $hasFilter = $request->filled('start_date')
+            || $request->filled('end_date')
+            || $request->filled('site_id')
+            || $request->filled('search')
+            || $showAll;
+
+        $sites = Site::where('is_active', true)->get(['id', 'name', 'code']);
+
+        // If no filter or search has been executed yet, return empty initial state
+        if (!$hasFilter) {
+            $sessions = new LengthAwarePaginator([], 0, 15, 1, [
+                'path' => $request->url(),
+                'query' => $request->query(),
+            ]);
+
+            return Inertia::render('patrol/index', [
+                'sessions' => $sessions,
+                'checkpointsRecap' => [],
+                'metrics' => [
+                    'total_checkpoints' => Checkpoint::count(),
+                    'covered_checkpoints' => 0,
+                    'missed_checkpoints' => 0,
+                    'coverage_percentage' => 0,
+                    'total_scans' => 0,
+                    'avg_distance' => 0,
+                    'total_anomalies' => 0,
+                    'total_out_of_radius' => 0,
+                ],
+                'sites' => $sites,
+                'filters' => [
+                    'site_id' => '',
+                    'start_date' => '',
+                    'end_date' => '',
+                    'search' => '',
+                    'tab' => $activeTab,
+                    'is_today' => false,
+                    'has_filter' => false,
+                    'show_all' => false,
+                ],
+            ]);
+        }
 
         // 1. Sessions Query
-        $sessionsQuery = PatrolSession::with(['schedule', 'site', 'user', 'logs.checkpoint'])
-            ->latest('started_at');
+        $sessionsQuery = PatrolSession::with([
+            'schedule',
+            'site',
+            'user',
+            'logs' => function ($lq) use ($startDate, $endDate) {
+                if (!empty($startDate)) {
+                    $lq->whereDate('scanned_at', '>=', $startDate);
+                }
+                if (!empty($endDate)) {
+                    $lq->whereDate('scanned_at', '<=', $endDate);
+                }
+                $lq->with('checkpoint')->orderBy('scanned_at', 'asc');
+            },
+        ])->latest('started_at');
 
         if ($siteId) {
             $sessionsQuery->where('site_id', $siteId);
         }
-        if (!empty($startDate)) {
-            $sessionsQuery->whereDate('started_at', '>=', $startDate);
-        }
-        if (!empty($endDate)) {
-            $sessionsQuery->whereDate('started_at', '<=', $endDate);
+        if (!empty($startDate) || !empty($endDate)) {
+            $sessionsQuery->where(function ($sq) use ($startDate, $endDate) {
+                $sq->where(function ($q) use ($startDate, $endDate) {
+                    if (!empty($startDate)) $q->whereDate('started_at', '>=', $startDate);
+                    if (!empty($endDate)) $q->whereDate('started_at', '<=', $endDate);
+                })->orWhere(function ($q) use ($startDate, $endDate) {
+                    if (!empty($startDate)) $q->whereDate('completed_at', '>=', $startDate);
+                    if (!empty($endDate)) $q->whereDate('completed_at', '<=', $endDate);
+                })->orWhereHas('logs', function ($lq) use ($startDate, $endDate) {
+                    if (!empty($startDate)) $lq->whereDate('scanned_at', '>=', $startDate);
+                    if (!empty($endDate)) $lq->whereDate('scanned_at', '<=', $endDate);
+                });
+            });
         }
         $driver = DB::connection()->getDriverName();
         $likeOp = $driver === 'pgsql' ? 'ilike' : 'like';
@@ -238,6 +302,8 @@ class PatrolController extends Controller
                 'search' => $search ?? '',
                 'tab' => $activeTab,
                 'is_today' => ($startDate === $today && $endDate === $today),
+                'has_filter' => true,
+                'show_all' => $showAll,
             ],
         ]);
     }

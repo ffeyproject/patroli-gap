@@ -81,6 +81,8 @@ interface Props {
         search?: string;
         tab: string;
         is_today?: boolean;
+        has_filter?: boolean;
+        show_all?: boolean;
     };
 }
 
@@ -133,6 +135,7 @@ export default function PatrolIndex({
         newStartDate?: string;
         newEndDate?: string;
         newSearch?: string;
+        showAll?: string;
     }) => {
         router.get(
             '/patroli',
@@ -142,6 +145,7 @@ export default function PatrolIndex({
                 start_date: params?.newStartDate !== undefined ? (params.newStartDate || undefined) : (startDate || undefined),
                 end_date: params?.newEndDate !== undefined ? (params.newEndDate || undefined) : (endDate || undefined),
                 search: params?.newSearch !== undefined ? (params.newSearch || undefined) : (searchQuery || undefined),
+                show_all: params?.showAll !== undefined ? params.showAll : (filters.show_all ? '1' : undefined),
             },
             {
                 preserveState: true,
@@ -195,7 +199,7 @@ export default function PatrolIndex({
     const handleAllDatesFilter = () => {
         setStartDate('');
         setEndDate('');
-        applyFilter({ newStartDate: '', newEndDate: '' });
+        applyFilter({ newStartDate: '', newEndDate: '', showAll: '1' });
     };
 
     const handleResetFilter = () => {
@@ -205,12 +209,7 @@ export default function PatrolIndex({
         setSearchQuery('');
         setRecapStatusFilter('all');
         setRecapConditionFilter('all');
-        applyFilter({
-            newSiteId: '',
-            newStartDate: '',
-            newEndDate: '',
-            newSearch: '',
-        });
+        router.get('/patroli', {}, { preserveState: true, preserveScroll: true });
     };
 
     const switchTab = (tab: 'sessions' | 'recap') => {
@@ -248,6 +247,7 @@ export default function PatrolIndex({
         );
     });
 
+    const hasFilterActive = Boolean(filters.has_filter);
     const isTodayActive = Boolean(filters.is_today);
     const selectedSiteObj = sites.find((s) => String(s.id) === String(selectedSiteId));
 
@@ -311,7 +311,7 @@ export default function PatrolIndex({
                     >
                         <Layers className="size-4" />
                         <span>Rekap per Titik</span>
-                        {missedCp > 0 && (
+                        {hasFilterActive && missedCp > 0 && (
                             <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                 {missedCp} Missed
                             </span>
@@ -324,7 +324,11 @@ export default function PatrolIndex({
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-blue-950/40 border border-blue-800/50 text-xs">
                 <div className="flex items-center gap-2 text-blue-300">
                     <Calendar className="size-4 text-blue-400 shrink-0" />
-                    {isTodayActive ? (
+                    {!hasFilterActive ? (
+                        <span className="text-amber-300 font-medium">
+                            Mode Standby: <strong>Silakan tentukan filter tanggal, pilih site, atau ketik pencarian untuk menampilkan data.</strong>
+                        </span>
+                    ) : isTodayActive ? (
                         <span>
                             Menampilkan data <strong>Hari Ini</strong> ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}).
                         </span>
@@ -588,7 +592,39 @@ export default function PatrolIndex({
             {/* ======================================================== */}
             {activeTab === 'sessions' && (
                 <div className="space-y-4">
-                    {sessions.data.length === 0 ? (
+                    {!hasFilterActive ? (
+                        <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-4 shadow-sm">
+                            <div className="size-16 rounded-2xl bg-blue-950/60 border border-blue-800 flex items-center justify-center text-blue-400 mx-auto shadow-inner">
+                                <Search className="size-8" />
+                            </div>
+                            <div className="space-y-1">
+                                <h3 className="text-base font-bold text-white">Silakan Cari / Tentukan Filter Terlebih Dahulu</h3>
+                                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                                    Halaman patroli dalam mode standby. Gunakan tombol filter tanggal cepat di bawah atau tentukan filter di bagian atas untuk memuat data.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                                <button
+                                    onClick={handleTodayFilter}
+                                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                                >
+                                    Tampilkan Hari Ini
+                                </button>
+                                <button
+                                    onClick={handleLast7DaysFilter}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                >
+                                    7 Hari Terakhir
+                                </button>
+                                <button
+                                    onClick={handleAllDatesFilter}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                >
+                                    Tampilkan Semua Riwayat
+                                </button>
+                            </div>
+                        </div>
+                    ) : sessions.data.length === 0 ? (
                         <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-2">
                             <ShieldCheck className="size-12 mx-auto text-slate-600 mb-2" />
                             <p className="font-semibold text-white">Tidak ada data sesi patroli pada periode ini.</p>
@@ -684,8 +720,42 @@ export default function PatrolIndex({
             {/* ======================================================== */}
             {activeTab === 'recap' && (
                 <div className="space-y-4">
-                    {/* Sub-Filters: Status & Condition Pills */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs">
+                    {!hasFilterActive ? (
+                        <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-4 shadow-sm">
+                            <div className="size-16 rounded-2xl bg-blue-950/60 border border-blue-800 flex items-center justify-center text-blue-400 mx-auto shadow-inner">
+                                <Layers className="size-8" />
+                            </div>
+                            <div className="space-y-1">
+                                <h3 className="text-base font-bold text-white">Rekapitulasi Titik Checkpoint Belum Dimuat</h3>
+                                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                                    Tentukan rentang tanggal atau site gedung untuk melihat audit kepatuhan, status scan, foto selfie watermark, dan presisi GPS tiap titik checkpoint.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                                <button
+                                    onClick={handleTodayFilter}
+                                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                                >
+                                    Tampilkan Hari Ini
+                                </button>
+                                <button
+                                    onClick={handleLast7DaysFilter}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                >
+                                    7 Hari Terakhir
+                                </button>
+                                <button
+                                    onClick={handleAllDatesFilter}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                >
+                                    Tampilkan Semua Riwayat
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Sub-Filters: Status & Condition Pills */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs">
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-slate-400 font-medium flex items-center gap-1">
                                 <ListFilter className="size-3.5 text-blue-400" />
@@ -895,8 +965,10 @@ export default function PatrolIndex({
                             </table>
                         </div>
                     </div>
-                </div>
+                </>
             )}
+        </div>
+    )}
 
             {/* ======================================================== */}
             {/* Modal Detail & Inspector Riwayat Checkpoint              */}
