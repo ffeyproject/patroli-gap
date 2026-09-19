@@ -38,12 +38,20 @@ import CheckpointInspectorModal from '@/components/patrol/CheckpointInspectorMod
 
 interface SessionData {
     id: number;
+    patrol_schedule_id?: number;
     round_number: number;
     status: string;
     started_at: string;
     completed_at?: string;
     notes?: string;
-    site: { name: string; code: string };
+    site: { id: number; name: string; code: string; checkpoints?: Array<{ id: number; name: string }> };
+    schedule?: {
+        id: number;
+        shift_name: string;
+        start_time: string;
+        end_time: string;
+        min_patrol_rounds: number;
+    } | null;
     user: { name: string; role: string; badge_number?: string };
     logs: Array<{
         id: number;
@@ -53,6 +61,15 @@ interface SessionData {
         condition_status: string;
         checkpoint: { name: string; code: string };
     }>;
+}
+
+interface ScheduleOption {
+    id: number;
+    site_id: number;
+    shift_name: string;
+    start_time: string;
+    end_time: string;
+    min_patrol_rounds: number;
 }
 
 interface Props {
@@ -74,12 +91,14 @@ interface Props {
         total_out_of_radius?: number;
     };
     sites: Array<{ id: number; name: string; code: string }>;
+    schedules?: ScheduleOption[];
     filters: {
-        site_id: number | string;
-        start_date: string;
-        end_date: string;
+        site_id?: number | string;
+        schedule_id?: number | string;
+        start_date?: string;
+        end_date?: string;
         search?: string;
-        tab: string;
+        tab?: string;
         is_today?: boolean;
         has_filter?: boolean;
         show_all?: boolean;
@@ -91,6 +110,7 @@ export default function PatrolIndex({
     checkpointsRecap,
     metrics,
     sites,
+    schedules = [],
     filters,
 }: Props) {
     const [activeTab, setActiveTab] = useState<'sessions' | 'recap'>(
@@ -98,6 +118,9 @@ export default function PatrolIndex({
     );
     const [selectedSiteId, setSelectedSiteId] = useState<string>(
         filters.site_id ? String(filters.site_id) : ''
+    );
+    const [selectedScheduleId, setSelectedScheduleId] = useState<string>(
+        filters.schedule_id ? String(filters.schedule_id) : ''
     );
     const [startDate, setStartDate] = useState<string>(filters.start_date || '');
     const [endDate, setEndDate] = useState<string>(filters.end_date || '');
@@ -112,6 +135,55 @@ export default function PatrolIndex({
     const [selectedCheckpointDetail, setSelectedCheckpointDetail] = useState<CheckpointRecapExport | null>(null);
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
     const [imageError, setImageError] = useState<boolean>(false);
+
+    const formatShiftDisplay = (schedule?: { shift_name: string; start_time: string; end_time: string } | null) => {
+        if (!schedule) return null;
+
+        const rawName = schedule.shift_name || '';
+        const cleanedName = rawName.replace(/\s*\([\d.:\s-]+\)\s*/g, '').trim();
+        const displayName = cleanedName.toLowerCase().startsWith('shift') ? cleanedName : `Shift ${cleanedName}`;
+        
+        const timeRange = (schedule.start_time && schedule.end_time)
+            ? `${schedule.start_time.slice(0, 5)} - ${schedule.end_time.slice(0, 5)} WIB`
+            : '';
+
+        const lower = rawName.toLowerCase();
+        let theme = {
+            bg: 'bg-amber-950/80',
+            border: 'border-amber-700/80',
+            text: 'text-amber-300',
+            badgeBg: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+            icon: '☀️',
+            roundBg: 'bg-gradient-to-br from-amber-900/70 to-orange-950/90 border-amber-600/60 text-amber-200 shadow-amber-950/40',
+        };
+
+        if (lower.includes('malam') || lower.includes('night')) {
+            theme = {
+                bg: 'bg-indigo-950/80',
+                border: 'border-indigo-700/80',
+                text: 'text-indigo-300',
+                badgeBg: 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300',
+                icon: '🌙',
+                roundBg: 'bg-gradient-to-br from-indigo-900/70 to-purple-950/90 border-indigo-600/60 text-indigo-200 shadow-indigo-950/40',
+            };
+        } else if (lower.includes('sore') || lower.includes('siang') || lower.includes('pagi')) {
+            theme = {
+                bg: 'bg-sky-950/80',
+                border: 'border-sky-700/80',
+                text: 'text-sky-300',
+                badgeBg: 'bg-sky-500/10 border-sky-500/30 text-sky-300',
+                icon: '🌤️',
+                roundBg: 'bg-gradient-to-br from-sky-900/70 to-blue-950/90 border-sky-600/60 text-sky-200 shadow-sky-950/40',
+            };
+        }
+
+        return {
+            displayName,
+            timeRange,
+            fullLabel: timeRange ? `${displayName} (${timeRange})` : displayName,
+            theme,
+        };
+    };
 
     const getPhotoUrl = (path?: string | null): string => {
         if (!path) return '';
@@ -132,6 +204,7 @@ export default function PatrolIndex({
     const applyFilter = (params?: {
         newTab?: 'sessions' | 'recap';
         newSiteId?: string;
+        newScheduleId?: string;
         newStartDate?: string;
         newEndDate?: string;
         newSearch?: string;
@@ -142,6 +215,7 @@ export default function PatrolIndex({
             {
                 tab: params?.newTab ?? activeTab,
                 site_id: params?.newSiteId !== undefined ? (params.newSiteId || undefined) : (selectedSiteId || undefined),
+                schedule_id: params?.newScheduleId !== undefined ? (params.newScheduleId || undefined) : (selectedScheduleId || undefined),
                 start_date: params?.newStartDate !== undefined ? (params.newStartDate || undefined) : (startDate || undefined),
                 end_date: params?.newEndDate !== undefined ? (params.newEndDate || undefined) : (endDate || undefined),
                 search: params?.newSearch !== undefined ? (params.newSearch || undefined) : (searchQuery || undefined),
@@ -284,7 +358,7 @@ export default function PatrolIndex({
                         Rekap & Audit Log Patroli Keamanan
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        Sistem audit ronda titik checkpoint, verifikasi geofence radius, foto selfie watermark, ekspor Excel & laporan resmi PDF.
+                        Monitoring audit kepatuhan patroli satpam, verifikasi shift, GPS & foto selfie watermark, serta rekapitulasi checkpoint.
                     </p>
                 </div>
 
@@ -299,7 +373,7 @@ export default function PatrolIndex({
                         }`}
                     >
                         <Clock className="size-4" />
-                        <span>Sesi & Putaran</span>
+                        <span>Sesi & Putaran ({sessions.total})</span>
                     </button>
                     <button
                         onClick={() => switchTab('recap')}
@@ -310,410 +384,474 @@ export default function PatrolIndex({
                         }`}
                     >
                         <Layers className="size-4" />
-                        <span>Rekap per Titik</span>
-                        {hasFilterActive && missedCp > 0 && (
-                            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                {missedCp} Missed
+                        <span>Rekap per Titik ({checkpointsRecap.length})</span>
+                    </button>
+                </div>
+            </div>
+
+                {/* Active Date Context & Quick Presets Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-blue-950/40 border border-blue-800/50 text-xs">
+                    <div className="flex items-center gap-2 text-blue-300">
+                        <Calendar className="size-4 text-blue-400 shrink-0" />
+                        {!hasFilterActive ? (
+                            <span className="text-amber-300 font-medium">
+                                Mode Standby: <strong>Silakan tentukan filter tanggal, pilih site, atau ketik pencarian untuk menampilkan data.</strong>
+                            </span>
+                        ) : isTodayActive ? (
+                            <span>
+                                Menampilkan data <strong>Hari Ini</strong> ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}).
+                            </span>
+                        ) : (startDate || endDate) ? (
+                            <span>
+                                Menampilkan data periode <strong>{startDate || 'Awal'}</strong> s/d <strong>{endDate || 'Sekarang'}</strong>.
+                            </span>
+                        ) : (
+                            <span>
+                                Menampilkan <strong>Semua Riwayat Data</strong> (tanpa filter tanggal).
                             </span>
                         )}
-                    </button>
-                </div>
-            </div>
-
-            {/* Active Date Context & Quick Presets Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-blue-950/40 border border-blue-800/50 text-xs">
-                <div className="flex items-center gap-2 text-blue-300">
-                    <Calendar className="size-4 text-blue-400 shrink-0" />
-                    {!hasFilterActive ? (
-                        <span className="text-amber-300 font-medium">
-                            Mode Standby: <strong>Silakan tentukan filter tanggal, pilih site, atau ketik pencarian untuk menampilkan data.</strong>
-                        </span>
-                    ) : isTodayActive ? (
-                        <span>
-                            Menampilkan data <strong>Hari Ini</strong> ({new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}).
-                        </span>
-                    ) : (startDate || endDate) ? (
-                        <span>
-                            Menampilkan data periode <strong>{startDate || 'Awal'}</strong> s/d <strong>{endDate || 'Sekarang'}</strong>.
-                        </span>
-                    ) : (
-                        <span>
-                            Menampilkan <strong>Semua Riwayat Data</strong> (tanpa filter tanggal).
-                        </span>
-                    )}
-                    {filters.search && (
-                        <span className="bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-md text-[11px] border border-blue-700/50 ml-1">
-                            Pencarian: "{filters.search}"
-                        </span>
-                    )}
-                </div>
-
-                {/* Quick Date Presets */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                        onClick={handleTodayFilter}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                            isTodayActive
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700'
-                        }`}
-                    >
-                        Hari Ini
-                    </button>
-                    <button
-                        onClick={handleYesterdayFilter}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
-                    >
-                        Kemarin
-                    </button>
-                    <button
-                        onClick={handleLast7DaysFilter}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
-                    >
-                        7 Hari Terakhir
-                    </button>
-                    <button
-                        onClick={handleThisMonthFilter}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
-                    >
-                        Bulan Ini
-                    </button>
-                    <button
-                        onClick={handleAllDatesFilter}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                            !startDate && !endDate
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700'
-                        }`}
-                    >
-                        Semua Periode
-                    </button>
-                </div>
-            </div>
-
-            {/* Comprehensive KPI Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
-                {/* Total Checkpoints */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Total Checkpoint</span>
-                        <div className="size-8 rounded-lg bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
-                            <MapPin className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="text-2xl font-black text-white">{totalCp}</div>
-                        <span className="text-[10px] text-slate-500">Titik aktif terdaftar</span>
-                    </div>
-                </div>
-
-                {/* Covered Checkpoints */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Titik Terpatroli</span>
-                        <div className="size-8 rounded-lg bg-emerald-950/70 border border-emerald-800 flex items-center justify-center text-emerald-400">
-                            <CheckCircle2 className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-2xl font-black text-emerald-400">{coveredCp}</span>
-                            <span className="text-xs font-mono text-emerald-500 font-semibold">({coveragePct}%)</span>
-                        </div>
-                        <div className="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                            <div
-                                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
-                                style={{ width: `${Math.min(100, coveragePct)}%` }}
-                            ></div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Missed Checkpoints */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Belum Discan</span>
-                        <div className="size-8 rounded-lg bg-rose-950/70 border border-rose-800 flex items-center justify-center text-rose-400">
-                            <AlertCircle className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="text-2xl font-black text-rose-400">{missedCp}</div>
-                        <span className="text-[10px] text-rose-400/80">
-                            {missedCp > 0 ? 'Titik perlu dironda' : 'Seluruh titik tercover!'}
-                        </span>
-                    </div>
-                </div>
-
-                {/* Total Scans */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Total Scan</span>
-                        <div className="size-8 rounded-lg bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
-                            <TrendingUp className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="text-2xl font-black text-blue-400">{metrics.total_scans}x</div>
-                        <span className="text-[10px] text-slate-500">Akumulasi scan periode ini</span>
-                    </div>
-                </div>
-
-                {/* Avg Distance */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Rata-rata Jarak</span>
-                        <div className="size-8 rounded-lg bg-cyan-950/70 border border-cyan-800 flex items-center justify-center text-cyan-400">
-                            <Activity className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="text-2xl font-black text-cyan-400">{metrics.avg_distance}m</div>
-                        <span className="text-[10px] text-slate-500">Presisi GPS scanner satpam</span>
-                    </div>
-                </div>
-
-                {/* Total Anomalies / Temuan */}
-                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-medium text-slate-400">Temuan / Masalah</span>
-                        <div className="size-8 rounded-lg bg-amber-950/70 border border-amber-800 flex items-center justify-center text-amber-400">
-                            <ShieldAlert className="size-4" />
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <div className="text-2xl font-black text-amber-400">
-                            {metrics.total_anomalies ?? 0}
-                        </div>
-                        <span className="text-[10px] text-slate-500">Laporan catatan abnormal</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Filter Bar & Export Actions */}
-            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
-                <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3 flex-1">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                        <Filter className="size-4 text-blue-400" />
-                        <span>Filter:</span>
+                        {filters.search && (
+                            <span className="bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-md text-[11px] border border-blue-700/50 ml-1">
+                                Pencarian: "{filters.search}"
+                            </span>
+                        )}
                     </div>
 
-                    {/* Site Filter */}
-                    <select
-                        value={selectedSiteId}
-                        onChange={(e) => setSelectedSiteId(e.target.value)}
-                        className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-                    >
-                        <option value="">Semua Site / Gedung</option>
-                        {sites.map((site) => (
-                            <option key={site.id} value={site.id}>
-                                {site.name} ({site.code})
-                            </option>
-                        ))}
-                    </select>
-
-                    {/* Date Range */}
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-                            title="Dari Tanggal"
-                        />
-                        <span className="text-xs text-slate-500">s/d</span>
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-                            title="Sampai Tanggal"
-                        />
-                    </div>
-
-                    <button
-                        type="submit"
-                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
-                    >
-                        <span>Terapkan</span>
-                    </button>
-
-                    {(selectedSiteId || startDate || endDate || searchQuery) && (
+                    {/* Quick Date Presets */}
+                    <div className="flex flex-wrap items-center gap-1.5">
                         <button
-                            type="button"
-                            onClick={handleResetFilter}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
-                            title="Reset Semua Filter"
+                            onClick={handleTodayFilter}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                                isTodayActive
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700'
+                            }`}
                         >
-                            <RotateCcw className="size-3.5" />
-                            <span>Reset Filter</span>
+                            Hari Ini
                         </button>
-                    )}
-                </form>
+                        <button
+                            onClick={handleYesterdayFilter}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                        >
+                            Kemarin
+                        </button>
+                        <button
+                            onClick={handleLast7DaysFilter}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                        >
+                            7 Hari Terakhir
+                        </button>
+                        <button
+                            onClick={handleThisMonthFilter}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer"
+                        >
+                            Bulan Ini
+                        </button>
+                        <button
+                            onClick={handleAllDatesFilter}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                                !startDate && !endDate
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700'
+                            }`}
+                        >
+                            Semua Periode
+                        </button>
+                    </div>
+                </div>
 
-                {/* Export & Action Buttons */}
-                <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Search Field */}
-                    <form onSubmit={handleSearchSubmit} className="relative min-w-[220px]">
-                        <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                            type="text"
-                            placeholder="Cari satpam, titik, catatan..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                        />
+                {/* Comprehensive KPI Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
+                    {/* Total Checkpoints */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Total Checkpoint</span>
+                            <div className="size-8 rounded-lg bg-blue-950/70 border border-blue-800 flex items-center justify-center text-blue-400">
+                                <MapPin className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="text-2xl font-black text-white">{totalCp}</div>
+                            <span className="text-[10px] text-slate-500">Titik aktif terdaftar</span>
+                        </div>
+                    </div>
+
+                    {/* Covered Checkpoints */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Titik Terpatroli</span>
+                            <div className="size-8 rounded-lg bg-emerald-950/70 border border-emerald-800 flex items-center justify-center text-emerald-400">
+                                <CheckCircle2 className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-2xl font-black text-emerald-400">{coveredCp}</span>
+                                <span className="text-xs font-semibold text-emerald-500/80 font-mono">({coveragePct}%)</span>
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-1.5 mt-2 overflow-hidden">
+                                <div
+                                    className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
+                                    style={{ width: `${coveragePct}%` }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Missed Checkpoints */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Belum Discan</span>
+                            <div className="size-8 rounded-lg bg-rose-950/70 border border-rose-800 flex items-center justify-center text-rose-400">
+                                <AlertTriangle className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="text-2xl font-black text-rose-400">{missedCp}</div>
+                            <span className="text-[10px] text-slate-500">Titik perlu dironda</span>
+                        </div>
+                    </div>
+
+                    {/* Total Scans */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Total Scan</span>
+                            <div className="size-8 rounded-lg bg-indigo-950/70 border border-indigo-800 flex items-center justify-center text-indigo-400">
+                                <TrendingUp className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="text-2xl font-black text-blue-400">{metrics.total_scans}x</div>
+                            <span className="text-[10px] text-slate-500">Akumulasi scan periode ini</span>
+                        </div>
+                    </div>
+
+                    {/* Average Precision Distance */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Rata-rata Jarak</span>
+                            <div className="size-8 rounded-lg bg-cyan-950/70 border border-cyan-800 flex items-center justify-center text-cyan-400">
+                                <Activity className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="text-2xl font-black text-cyan-400">
+                                {metrics.avg_distance > 0 ? `${metrics.avg_distance}m` : '0m'}
+                            </div>
+                            <span className="text-[10px] text-slate-500">Presisi GPS scanner satpam</span>
+                        </div>
+                    </div>
+
+                    {/* Anomalies / Issues */}
+                    <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col justify-between shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-slate-400">Temuan / Masalah</span>
+                            <div className="size-8 rounded-lg bg-amber-950/70 border border-amber-800 flex items-center justify-center text-amber-400">
+                                <ShieldAlert className="size-4" />
+                            </div>
+                        </div>
+                        <div className="mt-2">
+                            <div className="text-2xl font-black text-amber-400">
+                                {metrics.total_anomalies ?? 0}
+                            </div>
+                            <span className="text-[10px] text-slate-500">Laporan catatan abnormal</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Filter Bar & Export Actions */}
+                <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
+                    <form onSubmit={handleSearchSubmit} className="flex flex-wrap items-center gap-3 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                            <Filter className="size-4 text-blue-400" />
+                            <span>Filter:</span>
+                        </div>
+
+                        {/* Site Filter */}
+                        <select
+                            value={selectedSiteId}
+                            onChange={(e) => {
+                                setSelectedSiteId(e.target.value);
+                                applyFilter({ newSiteId: e.target.value });
+                            }}
+                            className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                            <option value="">Semua Site / Gedung</option>
+                            {sites.map((site) => (
+                                <option key={site.id} value={site.id}>
+                                    {site.name} ({site.code})
+                                </option>
+                            ))}
+                        </select>
+
+                        {/* Schedule / Shift Filter */}
+                        {schedules.length > 0 && (
+                            <select
+                                value={selectedScheduleId}
+                                onChange={(e) => {
+                                    setSelectedScheduleId(e.target.value);
+                                    applyFilter({ newScheduleId: e.target.value });
+                                }}
+                                className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                            >
+                                <option value="">Semua Shift / Jadwal</option>
+                                {schedules.map((sch) => {
+                                    const shiftInfo = formatShiftDisplay(sch);
+                                    return (
+                                        <option key={sch.id} value={sch.id}>
+                                            {shiftInfo ? `${shiftInfo.theme.icon} ${shiftInfo.fullLabel}` : sch.shift_name}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        )}
+
+                        {/* Date Range */}
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                                title="Dari Tanggal"
+                            />
+                            <span className="text-xs text-slate-500">s/d</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="rounded-xl bg-[#141e33] border border-slate-700 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                                title="Sampai Tanggal"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                        >
+                            <span>Terapkan</span>
+                        </button>
+
+                        {(selectedSiteId || selectedScheduleId || startDate || endDate || searchQuery) && (
+                            <button
+                                type="button"
+                                onClick={handleResetFilter}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
+                                title="Reset Semua Filter"
+                            >
+                                <RotateCcw className="size-3.5" />
+                                <span>Reset Filter</span>
+                            </button>
+                        )}
                     </form>
 
-                    {/* Export Excel Button */}
-                    <button
-                        onClick={handleTriggerExcelExport}
-                        className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/80 text-xs font-semibold shadow-sm transition-all cursor-pointer hover:border-emerald-600"
-                        title="Ekspor rekapitulasi checkpoint ke file Microsoft Excel (.xlsx)"
-                    >
-                        <FileSpreadsheet className="size-4 text-emerald-400" />
-                        <span>Export Excel</span>
-                    </button>
+                    {/* Export & Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-2.5">
+                        {/* Search Field */}
+                        <form onSubmit={handleSearchSubmit} className="relative min-w-[220px]">
+                            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="Cari satpam, titik, catatan..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                            />
+                        </form>
 
-                    {/* PDF Viewer Button */}
-                    <button
-                        onClick={() => setIsPdfViewerOpen(true)}
-                        className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
-                        title="Buka pratinjau dokumen resmi dan cetak / unduh PDF"
-                    >
-                        <FileText className="size-4 text-white" />
-                        <span>Buka PDF Viewer</span>
-                    </button>
+                        {/* Export Excel Button */}
+                        <button
+                            onClick={handleTriggerExcelExport}
+                            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/80 text-xs font-semibold shadow-sm transition-all cursor-pointer hover:border-emerald-600"
+                            title="Ekspor rekapitulasi checkpoint ke file Microsoft Excel (.xlsx)"
+                        >
+                            <FileSpreadsheet className="size-4 text-emerald-400" />
+                            <span>Export Excel</span>
+                        </button>
+
+                        {/* PDF Viewer Button */}
+                        <button
+                            onClick={() => setIsPdfViewerOpen(true)}
+                            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                            title="Buka pratinjau dokumen resmi dan cetak / unduh PDF"
+                        >
+                            <FileText className="size-4 text-white" />
+                            <span>Buka PDF Viewer</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
 
-            {/* ======================================================== */}
-            {/* TAB 1: Sesi & Putaran Patroli                            */}
-            {/* ======================================================== */}
-            {activeTab === 'sessions' && (
-                <div className="space-y-4">
-                    {!hasFilterActive ? (
-                        <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-4 shadow-sm">
-                            <div className="size-16 rounded-2xl bg-blue-950/60 border border-blue-800 flex items-center justify-center text-blue-400 mx-auto shadow-inner">
-                                <Search className="size-8" />
+                {/* ======================================================== */}
+                {/* TAB 1: Sesi & Putaran Patroli                            */}
+                {/* ======================================================== */}
+                {activeTab === 'sessions' && (
+                    <div className="space-y-4">
+                        {!hasFilterActive ? (
+                            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-4 shadow-sm">
+                                <div className="size-16 rounded-2xl bg-blue-950/60 border border-blue-800 flex items-center justify-center text-blue-400 mx-auto shadow-inner">
+                                    <Search className="size-8" />
+                                </div>
+                                <div className="space-y-1">
+                                    <h3 className="text-base font-bold text-white">Silakan Cari / Tentukan Filter Terlebih Dahulu</h3>
+                                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                                        Halaman patroli dalam mode standby. Gunakan tombol filter tanggal cepat di bawah atau tentukan filter di bagian atas untuk memuat data.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                                    <button
+                                        onClick={handleTodayFilter}
+                                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                                    >
+                                        Tampilkan Hari Ini
+                                    </button>
+                                    <button
+                                        onClick={handleLast7DaysFilter}
+                                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                    >
+                                        7 Hari Terakhir
+                                    </button>
+                                    <button
+                                        onClick={handleAllDatesFilter}
+                                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                                    >
+                                        Tampilkan Semua Riwayat
+                                    </button>
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                <h3 className="text-base font-bold text-white">Silakan Cari / Tentukan Filter Terlebih Dahulu</h3>
-                                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                                    Halaman patroli dalam mode standby. Gunakan tombol filter tanggal cepat di bawah atau tentukan filter di bagian atas untuk memuat data.
-                                </p>
+                        ) : sessions.data.length === 0 ? (
+                            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-2">
+                                <ShieldCheck className="size-12 mx-auto text-slate-600 mb-2" />
+                                <p className="font-semibold text-white">Tidak ada data sesi patroli pada periode ini.</p>
+                                <p className="text-xs text-slate-500">Coba ubah filter site atau rentang tanggal di atas.</p>
                             </div>
-                            <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
-                                <button
-                                    onClick={handleTodayFilter}
-                                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-all cursor-pointer"
-                                >
-                                    Tampilkan Hari Ini
-                                </button>
-                                <button
-                                    onClick={handleLast7DaysFilter}
-                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
-                                >
-                                    7 Hari Terakhir
-                                </button>
-                                <button
-                                    onClick={handleAllDatesFilter}
-                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
-                                >
-                                    Tampilkan Semua Riwayat
-                                </button>
-                            </div>
-                        </div>
-                    ) : sessions.data.length === 0 ? (
-                        <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-2">
-                            <ShieldCheck className="size-12 mx-auto text-slate-600 mb-2" />
-                            <p className="font-semibold text-white">Tidak ada data sesi patroli pada periode ini.</p>
-                            <p className="text-xs text-slate-500">Coba ubah filter site atau rentang tanggal di atas.</p>
-                        </div>
-                    ) : (
-                        sessions.data.map((session) => (
-                            <div
-                                key={session.id}
-                                className="rounded-2xl bg-[#0f172a]/90 border border-slate-800 p-5 space-y-4 shadow-sm hover:border-slate-700 transition-all"
-                            >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex size-10 items-center justify-center rounded-xl bg-blue-950 border border-blue-800 font-bold text-blue-400 text-sm">
-                                            R{session.round_number}
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="text-sm font-bold text-white">
-                                                    Patroli Round {session.round_number} • {session.site?.name}
-                                                </h3>
-                                                <span
-                                                    className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${
-                                                        session.status === 'completed'
-                                                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                                                            : 'bg-blue-950 text-blue-400 border border-blue-800'
+                        ) : (
+                            sessions.data.map((session) => {
+                                const totalCpSite = session.site?.checkpoints?.length || metrics.total_checkpoints || 10;
+                                const scannedCpCount = session.logs?.length || 0;
+                                const isAllScanned = scannedCpCount >= totalCpSite;
+                                const shiftInfo = formatShiftDisplay(session.schedule);
+
+                                return (
+                                    <div
+                                        key={session.id}
+                                        className="rounded-2xl bg-[#0f172a]/90 border border-slate-800 p-5 space-y-4 shadow-sm hover:border-slate-700 transition-all"
+                                    >
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
+                                            <div className="flex items-center gap-3">
+                                                <div
+                                                    className={`flex size-10 items-center justify-center rounded-xl font-black text-sm border shadow-sm ${
+                                                        shiftInfo
+                                                            ? shiftInfo.theme.roundBg
+                                                            : 'bg-slate-800 border-slate-700 text-slate-300'
                                                     }`}
                                                 >
-                                                    {session.status === 'completed' ? 'Selesai' : 'Sedang Berjalan'}
-                                                </span>
+                                                    R{session.round_number}
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h3 className="text-sm font-bold text-white">
+                                                            Patroli Round {session.round_number} • {session.site?.name}
+                                                        </h3>
+                                                        {shiftInfo && (
+                                                            <span
+                                                                className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shadow-sm ${shiftInfo.theme.badgeBg}`}
+                                                            >
+                                                                <span>{shiftInfo.theme.icon}</span>
+                                                                <span>{shiftInfo.displayName}</span>
+                                                                {shiftInfo.timeRange && (
+                                                                    <span className="opacity-80 font-mono text-[10px]">
+                                                                        ({shiftInfo.timeRange})
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        )}
+                                                        <span
+                                                            className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full ${
+                                                                session.status === 'completed'
+                                                                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                                                    : 'bg-blue-950 text-blue-400 border border-blue-800'
+                                                            }`}
+                                                        >
+                                                            {session.status === 'completed' ? 'Selesai' : 'Sedang Berjalan'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                                                        <span className="flex items-center gap-1">
+                                                            <User className="size-3 text-slate-500" />
+                                                            {session.user?.name} ({session.user?.badge_number || 'Satpam'})
+                                                        </span>
+                                                        <span className="flex items-center gap-1">
+                                                            <Clock className="size-3 text-slate-500" />
+                                                            Mulai: {new Date(session.started_at).toLocaleTimeString('id-ID')} WIB
+                                                        </span>
+                                                        {session.completed_at && (
+                                                            <span className="flex items-center gap-1 text-emerald-400/80">
+                                                                <CheckCircle2 className="size-3" />
+                                                                Selesai: {new Date(session.completed_at).toLocaleTimeString('id-ID')} WIB
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                                                <span className="flex items-center gap-1">
-                                                    <User className="size-3 text-slate-500" />
-                                                    {session.user?.name} ({session.user?.badge_number || 'Satpam'})
-                                                </span>
-                                                <span className="flex items-center gap-1">
-                                                    <Clock className="size-3 text-slate-500" />
-                                                    {new Date(session.started_at).toLocaleTimeString('id-ID')} WIB
+
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`text-xs font-semibold px-3 py-1 rounded-lg font-mono border ${
+                                                        isAllScanned
+                                                            ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
+                                                            : 'text-amber-400 bg-amber-950/60 border-amber-800'
+                                                    }`}
+                                                >
+                                                    {scannedCpCount} / {totalCpSite} Titik Selesai
                                                 </span>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-3 py-1 rounded-lg font-mono">
-                                            {session.logs?.length || 0} Titik Selesai
-                                        </span>
-                                    </div>
-                                </div>
+                                        {/* Checkpoints Scanned in this session */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                            {session.logs && session.logs.length > 0 ? (
+                                                session.logs.map((log) => (
+                                                    <div
+                                                        key={log.id}
+                                                        className="rounded-xl bg-[#141e33] border border-slate-800 p-3 space-y-2 text-xs"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-1">
+                                                            <div className="font-semibold text-white line-clamp-1">
+                                                                {log.checkpoint?.name}
+                                                            </div>
+                                                            <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
+                                                        </div>
 
-                                {/* Checkpoints Scanned in this session */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                                    {session.logs.map((log) => (
-                                        <div
-                                            key={log.id}
-                                            className="rounded-xl bg-[#141e33] border border-slate-800 p-3 space-y-2 text-xs"
-                                        >
-                                            <div className="flex items-start justify-between gap-1">
-                                                <div className="font-semibold text-white line-clamp-1">
-                                                    {log.checkpoint?.name}
+                                                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                                                            <span>
+                                                                Jarak: <strong className="text-emerald-400">{log.distance_meters}m</strong>
+                                                            </span>
+                                                            <span>{new Date(log.scanned_at).toLocaleTimeString('id-ID')}</span>
+                                                        </div>
+
+                                                        {log.selfie_photo_path && (
+                                                            <button
+                                                                onClick={() => openPhoto(log.selfie_photo_path)}
+                                                                className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-300 py-1 text-[11px] font-medium border border-slate-700 transition-colors cursor-pointer"
+                                                            >
+                                                                <Eye className="size-3" />
+                                                                <span>Lihat Foto Watermark</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="col-span-full py-2 text-center text-xs text-slate-500 italic">
+                                                    Belum ada titik checkpoint yang discan pada ronde ini.
                                                 </div>
-                                                <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
-                                            </div>
-
-                                            <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                                                <span>
-                                                    Jarak: <strong className="text-emerald-400">{log.distance_meters}m</strong>
-                                                </span>
-                                                <span>{new Date(log.scanned_at).toLocaleTimeString('id-ID')}</span>
-                                            </div>
-
-                                            {log.selfie_photo_path && (
-                                                <button
-                                                    onClick={() => openPhoto(log.selfie_photo_path)}
-                                                    className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-300 py-1 text-[11px] font-medium border border-slate-700 transition-colors cursor-pointer"
-                                                >
-                                                    <Eye className="size-3" />
-                                                    <span>Lihat Foto Watermark</span>
-                                                </button>
                                             )}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                )}
 
             {/* ======================================================== */}
             {/* TAB 2: Rekapitulasi per Titik Checkpoint                 */}

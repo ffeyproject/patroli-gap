@@ -25,6 +25,7 @@ class PatrolApiController extends Controller
     public function mySchedules(Request $request): JsonResponse
     {
         $user = $request->user();
+        $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
 
         // Get schedules where the user is assigned or all active if admin/danru
         $query = PatrolSchedule::with(['site.checkpoints' => function ($q) {
@@ -37,11 +38,49 @@ class PatrolApiController extends Controller
             });
         }
 
-        $schedules = $query->get();
+        $schedules = $query->get()->map(function ($schedule) use ($currentTime) {
+            $startTime = $schedule->start_time;
+            $endTime = $schedule->end_time;
+
+            $isCurrentShift = false;
+            if ($startTime && $endTime) {
+                if ($startTime <= $endTime) {
+                    $isCurrentShift = ($currentTime >= $startTime && $currentTime <= $endTime);
+                } else {
+                    // Overnight shift across midnight (e.g. 22:00 to 02:00)
+                    $isCurrentShift = ($currentTime >= $startTime || $currentTime <= $endTime);
+                }
+            }
+
+            // Check active in-progress session today for this schedule
+            $activeSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
+                ->where('status', 'in_progress')
+                ->latest('started_at')
+                ->first();
+
+            // Completed rounds today
+            $completedRounds = PatrolSession::where('patrol_schedule_id', $schedule->id)
+                ->whereDate('started_at', today())
+                ->where('status', 'completed')
+                ->count();
+
+            $scheduleArray = $schedule->toArray();
+            $scheduleArray['is_current_shift'] = $isCurrentShift;
+            $scheduleArray['has_active_session'] = (bool)$activeSession;
+            $scheduleArray['active_session_id'] = $activeSession?->id;
+            $scheduleArray['active_round_number'] = $activeSession?->round_number;
+            $scheduleArray['completed_rounds_count'] = $completedRounds;
+            $scheduleArray['total_checkpoints'] = $schedule->site?->checkpoints?->count() ?? 0;
+
+            return $scheduleArray;
+        });
+
+        // Sort so current shift is listed first
+        $sortedSchedules = $schedules->sortByDesc(fn($s) => $s['is_current_shift'] ? 1 : 0)->values();
 
         return response()->json([
             'success' => true,
-            'data' => $schedules,
+            'data' => $sortedSchedules,
         ]);
     }
 
@@ -51,13 +90,43 @@ class PatrolApiController extends Controller
     public function startSession(Request $request): JsonResponse
     {
         $request->validate([
-            'patrol_schedule_id' => 'required|exists:patrol_schedules,id',
+            'patrol_schedule_id' => 'nullable|exists:patrol_schedules,id',
             'round_number' => 'nullable|integer|min:1',
             'notes' => 'nullable|string',
         ]);
 
         $user = $request->user();
-        $schedule = PatrolSchedule::with('site.checkpoints')->findOrFail($request->patrol_schedule_id);
+        $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
+
+        if ($request->filled('patrol_schedule_id')) {
+            $schedule = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->findOrFail($request->patrol_schedule_id);
+        } else {
+            // Auto-detect schedule for current time
+            $schedulesQuery = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->where('is_active', true);
+            if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
+                $schedulesQuery->whereHas('users', function ($q) use ($user) {
+                    $q->where('users.id', $user->id);
+                });
+            }
+            $schedules = $schedulesQuery->get();
+            $schedule = $schedules->first(function ($s) use ($currentTime) {
+                if ($s->start_time && $s->end_time) {
+                    if ($s->start_time <= $s->end_time) {
+                        return ($currentTime >= $s->start_time && $currentTime <= $s->end_time);
+                    } else {
+                        return ($currentTime >= $s->start_time || $currentTime <= $s->end_time);
+                    }
+                }
+                return false;
+            }) ?? $schedules->first();
+
+            if (!$schedule) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak ditemukan jadwal shift aktif untuk Anda saat ini.',
+                ], 404);
+            }
+        }
 
         // Security check: Verify if the guard is assigned to this schedule
         if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
@@ -68,31 +137,58 @@ class PatrolApiController extends Controller
                     'message' => 'Akses ditolak! Anda tidak memiliki jadwal penugasan patroli pada shift ini.',
                 ], 403);
             }
+
+            // Shift Hours Validation: Ensure current time is within schedule hours
+            $isWithinShiftHours = true;
+            if ($schedule->start_time && $schedule->end_time) {
+                if ($schedule->start_time <= $schedule->end_time) {
+                    $isWithinShiftHours = ($currentTime >= $schedule->start_time && $currentTime <= $schedule->end_time);
+                } else {
+                    $isWithinShiftHours = ($currentTime >= $schedule->start_time || $currentTime <= $schedule->end_time);
+                }
+            }
+
+            if (!$isWithinShiftHours) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Jadwal shift {$schedule->shift_name} ({$schedule->start_time} - {$schedule->end_time} WIB) belum atau sudah tidak aktif saat ini. Anda hanya dapat memulai patroli pada jam shift yang berlaku.",
+                ], 422);
+            }
         }
 
-        // Check if there is already an active session in progress for this user or this schedule
-        $active = PatrolSession::where('status', 'in_progress')
-            ->where(function ($q) use ($user, $schedule) {
-                $q->where('user_id', $user->id)
-                  ->orWhere('patrol_schedule_id', $schedule->id);
-            })
+        // 1. Check if there is already an active session in progress for this schedule
+        $activeForSchedule = PatrolSession::where('patrol_schedule_id', $schedule->id)
+            ->where('status', 'in_progress')
             ->first();
 
-        if ($active) {
+        if ($activeForSchedule) {
             return response()->json([
                 'success' => true,
-                'message' => 'Sesi patroli sudah sedang berjalan untuk jadwal/shift ini.',
-                'data' => $this->formatSessionData($active),
+                'message' => "Sesi Patroli Round {$activeForSchedule->round_number} untuk shift {$schedule->shift_name} sedang berjalan. Silakan lanjutkan scan titik lokasi.",
+                'data' => $this->formatSessionData($activeForSchedule),
             ]);
         }
 
-        // Calculate next round number
+        // 2. Check if user is currently in another active session
+        $userActive = PatrolSession::where('user_id', $user->id)
+            ->where('status', 'in_progress')
+            ->first();
+
+        if ($userActive) {
+            return response()->json([
+                'success' => true,
+                'message' => "Anda masih memiliki Sesi Patroli Round {$userActive->round_number} yang sedang berjalan. Selesaikan sesi tersebut terlebih dahulu.",
+                'data' => $this->formatSessionData($userActive),
+            ]);
+        }
+
+        // 3. Calculate sequential round number for this schedule today
         $lastSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
             ->whereDate('started_at', today())
             ->latest('round_number')
             ->first();
 
-        $roundNumber = $request->round_number ?? ($lastSession ? $lastSession->round_number + 1 : 1);
+        $roundNumber = $lastSession ? ($lastSession->round_number + 1) : 1;
 
         $session = PatrolSession::create([
             'patrol_schedule_id' => $schedule->id,
@@ -106,7 +202,7 @@ class PatrolApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => "Sesi Patroli Round {$roundNumber} berhasil dimulai. Silakan scan titik lokasi.",
+            'message' => "Sesi Patroli Round {$roundNumber} ({$schedule->shift_name}) berhasil dimulai. Silakan scan titik lokasi.",
             'data' => $this->formatSessionData($session),
         ]);
     }
@@ -195,7 +291,47 @@ class PatrolApiController extends Controller
             ], 404);
         }
 
-        // 2. Strict Geofencing Calculation (10 Meters Max Radius)
+        // 2. Sequential Checkpoint Order Validation (Titik Harus Sesuai Urutan)
+        $allCheckpoints = Checkpoint::where('site_id', $session->site_id)
+            ->where('is_active', true)
+            ->orderBy('order_index')
+            ->orderBy('id')
+            ->get();
+
+        $scannedCheckpointIds = PatrolLog::where('patrol_session_id', $session->id)
+            ->pluck('checkpoint_id')
+            ->toArray();
+
+        // Cek apakah titik ini sudah pernah discan pada sesi ronde ini
+        if (in_array($checkpoint->id, $scannedCheckpointIds)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Titik [{$checkpoint->name}] sudah discan pada ronde ini. Silakan scan titik berikutnya sesuai urutan.",
+            ], 422);
+        }
+
+        // Cari titik berikutnya yang wajib discan sesuai urutan (order_index)
+        $nextExpectedCheckpoint = $allCheckpoints->first(function ($cp) use ($scannedCheckpointIds) {
+            return !in_array($cp->id, $scannedCheckpointIds);
+        });
+
+        if ($nextExpectedCheckpoint && $nextExpectedCheckpoint->id !== $checkpoint->id && !$isPrivileged) {
+            $expectedOrder = $nextExpectedCheckpoint->order_index ?? ($allCheckpoints->search(fn($c) => $c->id === $nextExpectedCheckpoint->id) + 1);
+            $currentOrder = $checkpoint->order_index ?? ($allCheckpoints->search(fn($c) => $c->id === $checkpoint->id) + 1);
+
+            return response()->json([
+                'success' => false,
+                'message' => "Urutan scan tidak sesuai! Anda harus scan titik ke-{$expectedOrder} [{$nextExpectedCheckpoint->name}] terlebih dahulu sebelum titik ke-{$currentOrder} [{$checkpoint->name}].",
+                'expected_checkpoint' => [
+                    'id' => $nextExpectedCheckpoint->id,
+                    'name' => $nextExpectedCheckpoint->name,
+                    'code' => $nextExpectedCheckpoint->code,
+                    'order_index' => $expectedOrder,
+                ],
+            ], 422);
+        }
+
+        // 3. Strict Geofencing Calculation (10 Meters Max Radius)
         $distance = $this->geofenceService->calculateDistance(
             (float)$request->latitude,
             (float)$request->longitude,
@@ -215,7 +351,7 @@ class PatrolApiController extends Controller
             ], 422);
         }
 
-        // 3. Process Selfie with Watermark
+        // 4. Process Selfie with Watermark
         $photoPath = $this->watermarkService->watermarkAndSave(
             $request->file('selfie_photo') ?? $request->selfie_photo,
             [
@@ -232,7 +368,7 @@ class PatrolApiController extends Controller
             'patrol_selfies'
         );
 
-        // 4. Save Patrol Log
+        // 5. Save Patrol Log
         $log = PatrolLog::create([
             'patrol_session_id' => $session->id,
             'checkpoint_id' => $checkpoint->id,
@@ -247,13 +383,15 @@ class PatrolApiController extends Controller
             'notes' => $request->notes,
         ]);
 
-        // 5. Check if all checkpoints have been scanned in this session
-        $totalCheckpoints = Checkpoint::where('site_id', $session->site_id)->where('is_active', true)->count();
-        $scannedCheckpoints = PatrolLog::where('patrol_session_id', $session->id)
-            ->distinct('checkpoint_id')
-            ->count('checkpoint_id');
+        // 6. Check if all checkpoints have been scanned in this session
+        $totalCheckpoints = $allCheckpoints->count();
+        $newScannedCheckpointIds = array_merge($scannedCheckpointIds, [$checkpoint->id]);
+        $scannedCheckpointsCount = count(array_unique($newScannedCheckpointIds));
+        $isCompleted = ($scannedCheckpointsCount >= $totalCheckpoints);
 
-        $isCompleted = ($scannedCheckpoints >= $totalCheckpoints);
+        $followingCheckpoint = $allCheckpoints->first(function ($cp) use ($newScannedCheckpointIds) {
+            return !in_array($cp->id, $newScannedCheckpointIds);
+        });
 
         return response()->json([
             'success' => true,
@@ -261,9 +399,15 @@ class PatrolApiController extends Controller
             'data' => [
                 'log' => $log->load('checkpoint'),
                 'distance_meters' => $distance,
-                'scanned_checkpoints' => $scannedCheckpoints,
+                'scanned_checkpoints' => $scannedCheckpointsCount,
                 'total_checkpoints' => $totalCheckpoints,
                 'is_all_scanned' => $isCompleted,
+                'next_checkpoint' => $followingCheckpoint ? [
+                    'id' => $followingCheckpoint->id,
+                    'name' => $followingCheckpoint->name,
+                    'code' => $followingCheckpoint->code,
+                    'order_index' => $followingCheckpoint->order_index,
+                ] : null,
             ],
         ]);
     }
@@ -276,10 +420,11 @@ class PatrolApiController extends Controller
         $request->validate([
             'patrol_session_id' => 'required|exists:patrol_sessions,id',
             'notes' => 'nullable|string',
+            'force' => 'nullable|boolean',
         ]);
 
         $user = $request->user();
-        $session = PatrolSession::with(['logs', 'schedule.users'])->findOrFail($request->patrol_session_id);
+        $session = PatrolSession::with(['logs', 'schedule.users', 'site.checkpoints'])->findOrFail($request->patrol_session_id);
 
         $isOwner = ($session->user_id === $user->id);
         $isAssignedToSchedule = $session->schedule && $session->schedule->users()->where('users.id', $user->id)->exists();
@@ -292,6 +437,32 @@ class PatrolApiController extends Controller
             ], 403);
         }
 
+        if ($session->status === 'completed') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Sesi patroli ini sudah selesai sebelumnya.',
+                'data' => $this->formatSessionData($session),
+            ]);
+        }
+
+        // Check if all active checkpoints in this site were scanned!
+        $totalCheckpoints = Checkpoint::where('site_id', $session->site_id)->where('is_active', true)->count();
+        $scannedCheckpoints = PatrolLog::where('patrol_session_id', $session->id)
+            ->distinct('checkpoint_id')
+            ->count('checkpoint_id');
+
+        if ($scannedCheckpoints < $totalCheckpoints && !$isPrivileged && !$request->boolean('force')) {
+            return response()->json([
+                'success' => false,
+                'message' => "Ronde {$session->round_number} belum selesai! Baru {$scannedCheckpoints} dari {$totalCheckpoints} titik checkpoint yang discan. Silakan scan semua titik sebelum mengakhiri ronde.",
+                'data' => [
+                    'scanned_count' => $scannedCheckpoints,
+                    'total_checkpoints' => $totalCheckpoints,
+                    'missing_count' => $totalCheckpoints - $scannedCheckpoints,
+                ],
+            ], 422);
+        }
+
         $session->update([
             'completed_at' => now(),
             'status' => 'completed',
@@ -300,8 +471,8 @@ class PatrolApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sesi patroli selesai. Terima kasih atas tugasnya!',
-            'data' => $session,
+            'message' => "Sesi Patroli Round {$session->round_number} selesai ({$scannedCheckpoints}/{$totalCheckpoints} titik). Terima kasih!",
+            'data' => $this->formatSessionData($session),
         ]);
     }
 
@@ -310,11 +481,11 @@ class PatrolApiController extends Controller
      */
     protected function formatSessionData(PatrolSession $session): array
     {
-        $session->loadMissing(['site.checkpoints', 'logs.checkpoint', 'user']);
+        $session->loadMissing(['site.checkpoints', 'logs.checkpoint', 'user', 'schedule']);
 
         $scannedCheckpointIds = $session->logs->pluck('checkpoint_id')->toArray();
 
-        $checkpoints = $session->site->checkpoints->map(function ($cp) use ($scannedCheckpointIds, $session) {
+        $checkpoints = $session->site->checkpoints->sortBy('order_index')->values()->map(function ($cp) use ($scannedCheckpointIds, $session) {
             $isScanned = in_array($cp->id, $scannedCheckpointIds);
             $log = $session->logs->firstWhere('checkpoint_id', $cp->id);
 
@@ -337,12 +508,21 @@ class PatrolApiController extends Controller
         $total = $checkpoints->count();
         $scannedCount = count(array_unique($scannedCheckpointIds));
         $progressPercentage = $total > 0 ? round(($scannedCount / $total) * 100) : 0;
+        $nextCheckpoint = $checkpoints->firstWhere('is_scanned', false);
 
         return [
             'session_id' => $session->id,
             'round_number' => $session->round_number,
             'status' => $session->status,
             'started_at' => $session->started_at->format('Y-m-d H:i:s'),
+            'completed_at' => $session->completed_at ? $session->completed_at->format('Y-m-d H:i:s') : null,
+            'schedule' => $session->schedule ? [
+                'id' => $session->schedule->id,
+                'shift_name' => $session->schedule->shift_name,
+                'start_time' => $session->schedule->start_time,
+                'end_time' => $session->schedule->end_time,
+                'min_patrol_rounds' => $session->schedule->min_patrol_rounds,
+            ] : null,
             'site' => [
                 'id' => $session->site->id,
                 'name' => $session->site->name,
@@ -357,6 +537,13 @@ class PatrolApiController extends Controller
                 'total_checkpoints' => $total,
                 'scanned_count' => $scannedCount,
                 'percentage' => $progressPercentage,
+                'is_all_scanned' => ($scannedCount >= $total),
+                'next_checkpoint' => $nextCheckpoint ? [
+                    'id' => $nextCheckpoint['id'],
+                    'name' => $nextCheckpoint['name'],
+                    'code' => $nextCheckpoint['code'],
+                    'order_index' => $nextCheckpoint['order_index'],
+                ] : null,
             ],
             'checkpoints' => $checkpoints,
         ];
