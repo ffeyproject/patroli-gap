@@ -70,22 +70,24 @@ class PatrolApiController extends Controller
             }
         }
 
-        // Check if there is already an active session in progress for this user
-        $active = PatrolSession::where('user_id', $user->id)
-            ->where('status', 'in_progress')
+        // Check if there is already an active session in progress for this user or this schedule
+        $active = PatrolSession::where('status', 'in_progress')
+            ->where(function ($q) use ($user, $schedule) {
+                $q->where('user_id', $user->id)
+                  ->orWhere('patrol_schedule_id', $schedule->id);
+            })
             ->first();
 
         if ($active) {
             return response()->json([
                 'success' => true,
-                'message' => 'Anda sudah memiliki sesi patroli yang sedang berjalan.',
+                'message' => 'Sesi patroli sudah sedang berjalan untuk jadwal/shift ini.',
                 'data' => $this->formatSessionData($active),
             ]);
         }
 
         // Calculate next round number
         $lastSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
-            ->where('user_id', $user->id)
             ->whereDate('started_at', today())
             ->latest('round_number')
             ->first();
@@ -115,9 +117,19 @@ class PatrolApiController extends Controller
     public function activeSession(Request $request): JsonResponse
     {
         $user = $request->user();
-        $session = PatrolSession::with(['schedule', 'site.checkpoints', 'logs.checkpoint'])
-            ->where('user_id', $user->id)
+        
+        $session = PatrolSession::with(['schedule.users', 'site.checkpoints', 'logs.checkpoint'])
             ->where('status', 'in_progress')
+            ->where(function ($query) use ($user) {
+                $query->where('user_id', $user->id);
+                if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
+                    $query->orWhereHas('schedule.users', function ($q) use ($user) {
+                        $q->where('users.id', $user->id);
+                    });
+                } else {
+                    $query->orWhereNotNull('id');
+                }
+            })
             ->latest('started_at')
             ->first();
 
@@ -151,12 +163,16 @@ class PatrolApiController extends Controller
         ]);
 
         $user = $request->user();
-        $session = PatrolSession::with(['site', 'schedule'])->findOrFail($request->patrol_session_id);
+        $session = PatrolSession::with(['site', 'schedule.users'])->findOrFail($request->patrol_session_id);
 
-        if ($session->user_id !== $user->id && !in_array($user->role, ['superadmin', 'admin'])) {
+        $isOwner = ($session->user_id === $user->id);
+        $isAssignedToSchedule = $session->schedule && $session->schedule->users()->where('users.id', $user->id)->exists();
+        $isPrivileged = in_array($user->role, ['superadmin', 'admin', 'danru']);
+
+        if (!$isOwner && !$isAssignedToSchedule && !$isPrivileged) {
             return response()->json([
                 'success' => false,
-                'message' => 'Sesi patroli ini bukan milik akun Anda.',
+                'message' => 'Sesi patroli ini bukan milik akun Anda dan Anda tidak ditugaskan pada jadwal shift ini.',
             ], 403);
         }
 
@@ -263,10 +279,17 @@ class PatrolApiController extends Controller
         ]);
 
         $user = $request->user();
-        $session = PatrolSession::with('logs')->findOrFail($request->patrol_session_id);
+        $session = PatrolSession::with(['logs', 'schedule.users'])->findOrFail($request->patrol_session_id);
 
-        if ($session->user_id !== $user->id && !in_array($user->role, ['superadmin', 'admin'])) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        $isOwner = ($session->user_id === $user->id);
+        $isAssignedToSchedule = $session->schedule && $session->schedule->users()->where('users.id', $user->id)->exists();
+        $isPrivileged = in_array($user->role, ['superadmin', 'admin', 'danru']);
+
+        if (!$isOwner && !$isAssignedToSchedule && !$isPrivileged) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Sesi patroli bukan milik akun Anda dan Anda tidak terdaftar pada jadwal shift ini.',
+            ], 403);
         }
 
         $session->update([
