@@ -30,8 +30,8 @@ class UserScheduleController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'username' => 'nullable|string|max:255|unique:users',
-            'email' => 'required|string|email|max:255|unique:users',
+            'username' => 'nullable|string|max:255|unique:users,username',
+            'email' => 'required|string|email|max:255|unique:users,email',
             'password' => 'required|string|min:6',
             'badge_number' => 'nullable|string|max:50',
             'phone' => 'nullable|string|max:50',
@@ -43,7 +43,13 @@ class UserScheduleController extends Controller
         $validated['is_active'] = true;
         $validated['theme'] = $validated['theme'] ?? 'midnight';
 
-        User::create($validated);
+        $user = User::create($validated);
+
+        try {
+            $user->syncRoles([$validated['role']]);
+        } catch (\Throwable $e) {
+            // Ignore if Spatie role does not exist yet
+        }
 
         return back()->with('success', 'User / Petugas baru berhasil didaftarkan.');
     }
@@ -52,27 +58,40 @@ class UserScheduleController extends Controller
     {
         $user = User::findOrFail($id);
 
-        $validated = $request->validate([
+        $rules = [
             'name' => 'required|string|max:255',
             'username' => 'nullable|string|max:255|unique:users,username,' . $user->id,
             'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
-            'password' => 'nullable|string|min:6',
             'badge_number' => 'nullable|string|max:50',
             'phone' => 'nullable|string|max:50',
             'role' => 'required|in:superadmin,admin,danru,satpam',
             'is_active' => 'nullable|boolean',
             'theme' => 'nullable|string|in:midnight,carbon,cyberpunk,emerald,amber,crimson,ocean,nordic,blackout,royal,toxic,light,sandstone,rosegold',
-        ]);
+        ];
 
-        if (!empty($validated['password'])) {
-            $validated['password'] = Hash::make($validated['password']);
+        if ($request->filled('password')) {
+            $rules['password'] = 'required|string|min:6';
+        }
+
+        $validated = $request->validate($rules);
+
+        if ($request->filled('password')) {
+            $validated['password'] = Hash::make($request->input('password'));
         } else {
             unset($validated['password']);
         }
 
-        $validated['is_active'] = $request->boolean('is_active', true);
+        if ($request->has('is_active')) {
+            $validated['is_active'] = $request->boolean('is_active');
+        }
 
         $user->update($validated);
+
+        try {
+            $user->syncRoles([$validated['role']]);
+        } catch (\Throwable $e) {
+            // Ignore if Spatie role does not exist yet
+        }
 
         return back()->with('success', 'Data Petugas / User berhasil diperbarui.');
     }

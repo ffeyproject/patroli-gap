@@ -7,6 +7,7 @@ import {
     Edit2,
     Filter,
     KeyRound,
+    Loader2,
     Lock,
     Pencil,
     Plus,
@@ -20,6 +21,7 @@ import {
     Users,
     X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AVAILABLE_THEMES } from '@/hooks/use-appearance';
 
 interface User {
@@ -107,6 +109,7 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
 
     const openCreateScheduleModal = () => {
         setEditingSchedule(null);
+        scheduleForm.clearErrors();
         scheduleForm.setData({
             site_id: sites[0]?.id || 1,
             shift_name: '',
@@ -121,6 +124,7 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
 
     const openEditScheduleModal = (sch: PatrolSchedule) => {
         setEditingSchedule(sch);
+        scheduleForm.clearErrors();
         scheduleForm.setData({
             site_id: sch.site?.id || sch.site_id || sites[0]?.id || 1,
             shift_name: sch.shift_name,
@@ -133,8 +137,15 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
         setIsAddScheduleModalOpen(true);
     };
 
+    const openCreateUserModal = () => {
+        userForm.clearErrors();
+        userForm.reset();
+        setIsAddUserModalOpen(true);
+    };
+
     const openEditUserModal = (u: User) => {
         setEditingUser(u);
+        editUserForm.clearErrors();
         editUserForm.setData({
             name: u.name,
             username: u.username || '',
@@ -152,9 +163,15 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
     const submitUser = (e: React.FormEvent) => {
         e.preventDefault();
         userForm.post('/users/store', {
+            preserveScroll: true,
             onSuccess: () => {
                 setIsAddUserModalOpen(false);
                 userForm.reset();
+                toast.success('Petugas baru berhasil ditambahkan.');
+            },
+            onError: (errors) => {
+                const firstErr = Object.values(errors)[0];
+                toast.error(firstErr || 'Gagal menambahkan petugas baru. Silakan periksa formulir.');
             },
         });
     };
@@ -163,17 +180,32 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
         e.preventDefault();
         if (!editingUser) return;
         editUserForm.post(`/users/${editingUser.id}/update`, {
+            preserveScroll: true,
             onSuccess: () => {
                 setIsEditUserModalOpen(false);
                 setEditingUser(null);
                 editUserForm.reset();
+                toast.success('Data petugas / user berhasil diperbarui.');
+            },
+            onError: (errors) => {
+                const firstErr = Object.values(errors)[0];
+                toast.error(firstErr || 'Gagal memperbarui data user. Silakan periksa formulir.');
             },
         });
     };
 
     const deleteUser = (u: User) => {
         if (confirm(`Apakah Anda yakin ingin menghapus petugas "${u.name}" (${u.badge_number || u.email})?`)) {
-            router.delete(`/users/${u.id}`);
+            router.delete(`/users/${u.id}`, {
+                preserveScroll: true,
+                onSuccess: () => {
+                    toast.success('Petugas berhasil dihapus.');
+                },
+                onError: (errors) => {
+                    const firstErr = Object.values(errors)[0];
+                    toast.error(firstErr || 'Gagal menghapus data petugas.');
+                },
+            });
         }
     };
 
@@ -181,17 +213,29 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
         e.preventDefault();
         if (editingSchedule) {
             scheduleForm.post(`/schedules/${editingSchedule.id}/update`, {
+                preserveScroll: true,
                 onSuccess: () => {
                     setIsAddScheduleModalOpen(false);
                     setEditingSchedule(null);
                     scheduleForm.reset();
+                    toast.success('Jadwal shift patroli berhasil diperbarui.');
+                },
+                onError: (errors) => {
+                    const firstErr = Object.values(errors)[0];
+                    toast.error(firstErr || 'Gagal memperbarui jadwal shift.');
                 },
             });
         } else {
             scheduleForm.post('/schedules/store', {
+                preserveScroll: true,
                 onSuccess: () => {
                     setIsAddScheduleModalOpen(false);
                     scheduleForm.reset();
+                    toast.success('Jadwal shift patroli berhasil dibuat.');
+                },
+                onError: (errors) => {
+                    const firstErr = Object.values(errors)[0];
+                    toast.error(firstErr || 'Gagal membuat jadwal shift.');
                 },
             });
         }
@@ -199,7 +243,16 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
 
     const deleteSchedule = (sch: PatrolSchedule) => {
         if (confirm(`Yakin ingin menghapus jadwal "${sch.shift_name}"?`)) {
-            router.delete(`/schedules/${sch.id}`);
+            router.delete(`/schedules/${sch.id}`, {
+                preserveScroll: true,
+                onSuccess: () => {
+                    toast.success('Jadwal shift berhasil dihapus.');
+                },
+                onError: (errors) => {
+                    const firstErr = Object.values(errors)[0];
+                    toast.error(firstErr || 'Gagal menghapus jadwal shift.');
+                },
+            });
         }
     };
 
@@ -246,7 +299,7 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
 
                 <div className="flex flex-wrap items-center gap-2.5">
                     <button
-                        onClick={() => setIsAddUserModalOpen(true)}
+                        onClick={openCreateUserModal}
                         className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 text-xs font-semibold border border-slate-700 transition-all active:scale-95 cursor-pointer shadow-sm"
                     >
                         <UserPlus className="size-4 text-blue-400" />
@@ -494,7 +547,7 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                     <div className="relative max-w-md w-full bg-[#0f172a] border border-slate-700 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-[#131b2e]">
                             <span className="text-white font-semibold text-sm">Tambah Petugas / User Baru</span>
-                            <button onClick={() => setIsAddUserModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:text-white">
+                            <button onClick={() => setIsAddUserModalOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:text-white cursor-pointer">
                                 <X className="size-5" />
                             </button>
                         </div>
@@ -508,8 +561,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                     placeholder="Contoh: Budi Santoso"
                                     value={userForm.data.name}
                                     onChange={(e) => userForm.setData('name', e.target.value)}
-                                    className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                    className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                        userForm.errors.name ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                    }`}
                                 />
+                                {userForm.errors.name && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.name}</span>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -520,8 +578,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         placeholder="budi_satpam"
                                         value={userForm.data.username}
                                         onChange={(e) => userForm.setData('username', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            userForm.errors.username ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {userForm.errors.username && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.username}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Email *</label>
@@ -531,8 +594,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         placeholder="budi@example.com"
                                         value={userForm.data.email}
                                         onChange={(e) => userForm.setData('email', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            userForm.errors.email ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {userForm.errors.email && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.email}</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -545,8 +613,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         placeholder="Min. 6 Karakter"
                                         value={userForm.data.password}
                                         onChange={(e) => userForm.setData('password', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            userForm.errors.password ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {userForm.errors.password && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.password}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">No. HP / WhatsApp</label>
@@ -555,8 +628,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         placeholder="08123456789"
                                         value={userForm.data.phone}
                                         onChange={(e) => userForm.setData('phone', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            userForm.errors.phone ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {userForm.errors.phone && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.phone}</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -568,8 +646,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         placeholder="SEC-005"
                                         value={userForm.data.badge_number}
                                         onChange={(e) => userForm.setData('badge_number', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            userForm.errors.badge_number ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {userForm.errors.badge_number && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.badge_number}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Role Akses *</label>
@@ -583,6 +666,9 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         <option value="admin">Admin</option>
                                         <option value="superadmin">Super Admin</option>
                                     </select>
+                                    {userForm.errors.role && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{userForm.errors.role}</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -595,15 +681,28 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                 >
                                     {AVAILABLE_THEMES.map((th) => (
                                         <option key={th.id} value={th.id}>
-                                            {th.name} ({th.isDark ? 'Dark' : 'Light'})
+                                             {th.name} ({th.isDark ? 'Dark' : 'Light'})
                                         </option>
                                     ))}
                                 </select>
                             </div>
 
                             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-                                <button type="button" onClick={() => setIsAddUserModalOpen(false)} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium cursor-pointer">Batal</button>
-                                <button type="submit" disabled={userForm.processing} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer">Simpan Petugas</button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAddUserModalOpen(false)}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium cursor-pointer hover:bg-slate-700 transition-colors"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={userForm.processing}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shadow-md shadow-blue-600/30 transition-all"
+                                >
+                                    {userForm.processing && <Loader2 className="size-3.5 animate-spin" />}
+                                    <span>{userForm.processing ? 'Menyimpan...' : 'Simpan Petugas'}</span>
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -638,8 +737,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                     required
                                     value={editUserForm.data.name}
                                     onChange={(e) => editUserForm.setData('name', e.target.value)}
-                                    className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                    className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                        editUserForm.errors.name ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                    }`}
                                 />
+                                {editUserForm.errors.name && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.name}</span>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -649,8 +753,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         type="text"
                                         value={editUserForm.data.username}
                                         onChange={(e) => editUserForm.setData('username', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            editUserForm.errors.username ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {editUserForm.errors.username && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.username}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Email *</label>
@@ -659,23 +768,33 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         required
                                         value={editUserForm.data.email}
                                         onChange={(e) => editUserForm.setData('email', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            editUserForm.errors.email ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {editUserForm.errors.email && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.email}</span>
+                                    )}
                                 </div>
                             </div>
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
                                     <span>Ganti Password Baru</span>
-                                    <span className="text-[10px] text-slate-500 font-normal">Kosongkan jika tidak diubah</span>
+                                    <span className="text-[10px] text-slate-500 font-normal">Kosongkan jika tidak diubah (Min. 6 Karakter jika diisi)</span>
                                 </label>
                                 <input
                                     type="password"
                                     placeholder="Biarkan kosong jika tidak ingin ganti password"
                                     value={editUserForm.data.password}
                                     onChange={(e) => editUserForm.setData('password', e.target.value)}
-                                    className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                    className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none ${
+                                        editUserForm.errors.password ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                    }`}
                                 />
+                                {editUserForm.errors.password && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.password}</span>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -685,8 +804,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         type="text"
                                         value={editUserForm.data.badge_number}
                                         onChange={(e) => editUserForm.setData('badge_number', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            editUserForm.errors.badge_number ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {editUserForm.errors.badge_number && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.badge_number}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">No. HP / WhatsApp</label>
@@ -694,8 +818,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         type="text"
                                         value={editUserForm.data.phone}
                                         onChange={(e) => editUserForm.setData('phone', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            editUserForm.errors.phone ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {editUserForm.errors.phone && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.phone}</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -712,6 +841,9 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         <option value="admin">Admin</option>
                                         <option value="superadmin">Super Admin</option>
                                     </select>
+                                    {editUserForm.errors.role && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{editUserForm.errors.role}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Status Akun</label>
@@ -748,16 +880,17 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         setIsEditUserModalOpen(false);
                                         setEditingUser(null);
                                     }}
-                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium cursor-pointer"
+                                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium cursor-pointer transition-colors"
                                 >
                                     Batal
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={editUserForm.processing}
-                                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer shadow-md shadow-blue-600/30"
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer shadow-md shadow-blue-600/30 transition-all"
                                 >
-                                    Simpan Perubahan
+                                    {editUserForm.processing && <Loader2 className="size-3.5 animate-spin" />}
+                                    <span>{editUserForm.processing ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
                                 </button>
                             </div>
                         </form>
@@ -773,7 +906,7 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                             <span className="text-white font-semibold text-sm">
                                 {editingSchedule ? 'Edit Jadwal Shift Patroli' : 'Atur Jadwal Shift & Penugasan Satpam'}
                             </span>
-                            <button onClick={() => { setIsAddScheduleModalOpen(false); setEditingSchedule(null); }} className="rounded-lg p-1.5 text-slate-400 hover:text-white">
+                            <button onClick={() => { setIsAddScheduleModalOpen(false); setEditingSchedule(null); }} className="rounded-lg p-1.5 text-slate-400 hover:text-white cursor-pointer">
                                 <X className="size-5" />
                             </button>
                         </div>
@@ -784,12 +917,17 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                 <select
                                     value={scheduleForm.data.site_id}
                                     onChange={(e) => scheduleForm.setData('site_id', parseInt(e.target.value))}
-                                    className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                    className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                        scheduleForm.errors.site_id ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                    }`}
                                 >
                                     {sites.map((s) => (
                                         <option key={s.id} value={s.id}>{s.name}</option>
                                     ))}
                                 </select>
+                                {scheduleForm.errors.site_id && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.site_id}</span>
+                                )}
                             </div>
 
                             <div>
@@ -800,8 +938,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                     placeholder="Contoh: Shift Pagi (07:00 - 15:00)"
                                     value={scheduleForm.data.shift_name}
                                     onChange={(e) => scheduleForm.setData('shift_name', e.target.value)}
-                                    className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                    className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                        scheduleForm.errors.shift_name ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                    }`}
                                 />
+                                {scheduleForm.errors.shift_name && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.shift_name}</span>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-3 gap-3">
@@ -812,8 +955,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         required
                                         value={scheduleForm.data.start_time}
                                         onChange={(e) => scheduleForm.setData('start_time', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            scheduleForm.errors.start_time ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {scheduleForm.errors.start_time && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.start_time}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Jam Selesai *</label>
@@ -822,8 +970,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         required
                                         value={scheduleForm.data.end_time}
                                         onChange={(e) => scheduleForm.setData('end_time', e.target.value)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            scheduleForm.errors.end_time ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {scheduleForm.errors.end_time && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.end_time}</span>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-300 mb-1">Round Wajib *</label>
@@ -834,8 +987,13 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         required
                                         value={scheduleForm.data.min_patrol_rounds}
                                         onChange={(e) => scheduleForm.setData('min_patrol_rounds', parseInt(e.target.value) || 1)}
-                                        className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                                        className={`w-full rounded-xl bg-[#141e33] border px-3.5 py-2 text-xs text-white focus:outline-none ${
+                                            scheduleForm.errors.min_patrol_rounds ? 'border-rose-500 focus:border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                                        }`}
                                     />
+                                    {scheduleForm.errors.min_patrol_rounds && (
+                                        <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.min_patrol_rounds}</span>
+                                    )}
                                 </div>
                             </div>
 
@@ -861,12 +1019,32 @@ export default function UsersIndex({ users, sites, schedules }: Props) {
                                         );
                                     })}
                                 </div>
+                                {scheduleForm.errors.user_ids && (
+                                    <span className="text-[11px] text-rose-400 font-medium mt-1 block">{scheduleForm.errors.user_ids}</span>
+                                )}
                             </div>
 
                             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-                                <button type="button" onClick={() => { setIsAddScheduleModalOpen(false); setEditingSchedule(null); }} className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium cursor-pointer">Batal</button>
-                                <button type="submit" disabled={scheduleForm.processing || scheduleForm.data.user_ids.length === 0} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer">
-                                    {editingSchedule ? 'Perbarui Jadwal Shift' : 'Simpan & Kunci Hak Akses'}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsAddScheduleModalOpen(false); setEditingSchedule(null); }}
+                                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium cursor-pointer hover:bg-slate-700 transition-colors"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={scheduleForm.processing || scheduleForm.data.user_ids.length === 0}
+                                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer shadow-md shadow-blue-600/30 transition-all"
+                                >
+                                    {scheduleForm.processing && <Loader2 className="size-3.5 animate-spin" />}
+                                    <span>
+                                        {scheduleForm.processing
+                                            ? 'Menyimpan...'
+                                            : editingSchedule
+                                            ? 'Perbarui Jadwal Shift'
+                                            : 'Simpan & Kunci Hak Akses'}
+                                    </span>
                                 </button>
                             </div>
                         </form>
