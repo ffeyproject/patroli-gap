@@ -10,6 +10,7 @@ use App\Models\Site;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,6 +33,43 @@ class LiveMapController extends Controller
         return response()->json([
             'success' => true,
             'data' => $data,
+        ]);
+    }
+
+    /**
+     * Mobile API endpoint for continuous live GPS location tracking ping.
+     */
+    public function updateLocation(Request $request): JsonResponse
+    {
+        $request->validate([
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+            'heading' => 'nullable|numeric',
+            'speed' => 'nullable|numeric',
+            'accuracy' => 'nullable|numeric',
+        ]);
+
+        $user = $request->user();
+        $cacheKey = "guard_live_loc_{$user->id}";
+
+        Cache::put($cacheKey, [
+            'latitude' => (float)$request->latitude,
+            'longitude' => (float)$request->longitude,
+            'heading' => $request->heading ? (float)$request->heading : null,
+            'speed' => $request->speed ? (float)$request->speed : null,
+            'accuracy' => $request->accuracy ? (float)$request->accuracy : null,
+            'updated_at' => now()->timezone('Asia/Jakarta')->format('Y-m-d H:i:s'),
+        ], now()->addHours(12));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Koordinat GPS live berhasil diperbarui.',
+            'data' => [
+                'user_id' => $user->id,
+                'latitude' => (float)$request->latitude,
+                'longitude' => (float)$request->longitude,
+                'updated_at' => now()->timezone('Asia/Jakarta')->format('H:i:s') . ' WIB',
+            ],
         ]);
     }
 
@@ -71,8 +109,16 @@ class LiveMapController extends Controller
                 $statusText = 'Patroli Selesai (Standby)';
             }
 
-            $currentLat = $lastLog ? (float)$lastLog->latitude : ($att->check_in_lat ? (float)$att->check_in_lat : (float)($att->site?->latitude ?? -6.2297465));
-            $currentLng = $lastLog ? (float)$lastLog->longitude : ($att->check_in_lng ? (float)$att->check_in_lng : (float)($att->site?->longitude ?? 106.8295180));
+            // Check if there is a live GPS ping from mobile
+            $liveLoc = Cache::get("guard_live_loc_{$user->id}");
+
+            if ($liveLoc && !empty($liveLoc['latitude']) && !empty($liveLoc['longitude'])) {
+                $currentLat = (float)$liveLoc['latitude'];
+                $currentLng = (float)$liveLoc['longitude'];
+            } else {
+                $currentLat = $lastLog ? (float)$lastLog->latitude : ($att->check_in_lat ? (float)$att->check_in_lat : (float)($att->site?->latitude ?? -6.2297465));
+                $currentLng = $lastLog ? (float)$lastLog->longitude : ($att->check_in_lng ? (float)$att->check_in_lng : (float)($att->site?->longitude ?? 106.8295180));
+            }
 
             return [
                 'id' => $user->id,
@@ -92,6 +138,7 @@ class LiveMapController extends Controller
                 'last_distance_meters' => $lastLog?->distance_meters ?? 0,
                 'last_selfie_url' => $lastLog?->selfie_photo_path ? asset($lastLog->selfie_photo_path) : ($att->check_in_photo ? asset($att->check_in_photo) : null),
                 'is_in_patrol' => (bool)$activeSession,
+                'live_updated_at' => $liveLoc['updated_at'] ?? null,
             ];
         })->filter()->values();
 

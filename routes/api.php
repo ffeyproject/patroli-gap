@@ -19,8 +19,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/auth/profile', [AuthController::class, 'profile']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
-        // Live Guard Tracking (Where are the guards now)
+        // Live Guard Tracking (Where are the guards now & Live GPS update)
         Route::get('/live/guards', [LiveMapController::class, 'liveData']);
+        Route::post('/live/location', [LiveMapController::class, 'updateLocation']);
 
         // Attendance (Check-in / Check-out Shift)
         Route::get('/attendance/status', [AttendanceApiController::class, 'status']);
