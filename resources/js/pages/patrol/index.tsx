@@ -60,6 +60,7 @@ interface SessionData {
         selfie_photo_path?: string;
         condition_status: string;
         checkpoint: { name: string; code: string };
+        user?: { id: number; name: string; badge_number?: string };
     }>;
 }
 
@@ -731,6 +732,12 @@ export default function PatrolIndex({
                                 const isAllScanned = scannedCpCount >= totalCpSite;
                                 const shiftInfo = formatShiftDisplay(session.schedule);
 
+                                const activeGuards = session.logs && session.logs.length > 0
+                                    ? Array.from(new Set(session.logs.map((l) => l.user?.name).filter(Boolean)))
+                                    : [];
+                                const mainGuardName = activeGuards.length > 0 ? activeGuards.join(', ') : (session.user?.name || 'Satpam');
+                                const mainGuardBadge = session.user?.badge_number || session.logs?.[0]?.user?.badge_number;
+
                                 return (
                                     <div
                                         key={session.id}
@@ -753,7 +760,7 @@ export default function PatrolIndex({
                                                             Patroli Round {session.round_number} • {session.site?.name}
                                                         </h3>
                                                         {shiftInfo && (
-                                                            <span
+                                                             <span
                                                                 className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shadow-sm ${shiftInfo.theme.badgeBg}`}
                                                             >
                                                                 <span>{shiftInfo.theme.icon}</span>
@@ -778,7 +785,10 @@ export default function PatrolIndex({
                                                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
                                                         <span className="flex items-center gap-1">
                                                             <User className="size-3 text-slate-500" />
-                                                            {session.user?.name} ({session.user?.badge_number || 'Satpam'})
+                                                            <span className="text-slate-200 font-medium">{mainGuardName}</span>
+                                                            {mainGuardBadge && (
+                                                                <span className="text-slate-500">({mainGuardBadge})</span>
+                                                            )}
                                                         </span>
                                                         <span className="flex items-center gap-1">
                                                             <Clock className="size-3 text-slate-500" />
@@ -828,6 +838,15 @@ export default function PatrolIndex({
                                                             </span>
                                                             <span>{new Date(log.scanned_at).toLocaleTimeString('id-ID')}</span>
                                                         </div>
+
+                                                        {log.user?.name && (
+                                                            <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                                                                <User className="size-3 text-slate-500 shrink-0" />
+                                                                <span className="truncate">
+                                                                    Oleh: <strong className="text-slate-200">{log.user.name}</strong>
+                                                                </span>
+                                                            </div>
+                                                        )}
 
                                                         {log.selfie_photo_path && (
                                                             <button

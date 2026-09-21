@@ -11,6 +11,7 @@ use App\Services\GeofenceService;
 use App\Services\WatermarkService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PatrolApiController extends Controller
 {
@@ -27,6 +28,8 @@ class PatrolApiController extends Controller
         $user = $request->user();
         $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
 
+        $this->autoCloseExpiredSessions();
+
         // Get schedules where the user is assigned or all active if admin/danru
         $query = PatrolSchedule::with(['site.checkpoints' => function ($q) {
             $q->where('is_active', true)->orderBy('order_index');
@@ -38,7 +41,7 @@ class PatrolApiController extends Controller
             });
         }
 
-        $schedules = $query->get()->map(function ($schedule) use ($currentTime) {
+        $schedules = $query->get()->map(function ($schedule) use ($currentTime, $user) {
             $startTime = $schedule->start_time;
             $endTime = $schedule->end_time;
 
@@ -52,14 +55,17 @@ class PatrolApiController extends Controller
                 }
             }
 
-            // Check active in-progress session today for this schedule
+            // Check active in-progress session today for this schedule and user
             $activeSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
                 ->where('status', 'in_progress')
+                ->where('started_at', '>=', now()->subHours(14))
+                ->where('user_id', $user->id)
                 ->latest('started_at')
                 ->first();
 
-            // Completed rounds today
+            // Completed rounds today for this user or schedule
             $completedRounds = PatrolSession::where('patrol_schedule_id', $schedule->id)
+                ->where('user_id', $user->id)
                 ->whereDate('started_at', today())
                 ->where('status', 'completed')
                 ->count();
@@ -98,6 +104,8 @@ class PatrolApiController extends Controller
         $user = $request->user();
         $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
 
+        $this->autoCloseExpiredSessions();
+
         if ($request->filled('patrol_schedule_id')) {
             $schedule = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->findOrFail($request->patrol_schedule_id);
         } else {
@@ -118,13 +126,13 @@ class PatrolApiController extends Controller
                     }
                 }
                 return false;
-            }) ?? $schedules->first();
+            });
 
             if (!$schedule) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Tidak ditemukan jadwal shift aktif untuk Anda saat ini.',
-                ], 404);
+                    'message' => "Saat ini ({$currentTime} WIB) tidak ada jadwal shift patroli yang sedang aktif.",
+                ], 422);
             }
         }
 
@@ -151,39 +159,29 @@ class PatrolApiController extends Controller
             if (!$isWithinShiftHours) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Jadwal shift {$schedule->shift_name} ({$schedule->start_time} - {$schedule->end_time} WIB) belum atau sudah tidak aktif saat ini. Anda hanya dapat memulai patroli pada jam shift yang berlaku.",
+                    'message' => "Jadwal shift {$schedule->shift_name} ({$schedule->start_time} - {$schedule->end_time} WIB) sudah tidak aktif atau belum mulai saat ini ({$currentTime} WIB).",
                 ], 422);
             }
         }
 
-        // 1. Check if there is already an active session in progress for this schedule
-        $activeForSchedule = PatrolSession::where('patrol_schedule_id', $schedule->id)
-            ->where('status', 'in_progress')
-            ->first();
-
-        if ($activeForSchedule) {
-            return response()->json([
-                'success' => true,
-                'message' => "Sesi Patroli Round {$activeForSchedule->round_number} untuk shift {$schedule->shift_name} sedang berjalan. Silakan lanjutkan scan titik lokasi.",
-                'data' => $this->formatSessionData($activeForSchedule),
-            ]);
-        }
-
-        // 2. Check if user is currently in another active session
+        // 1. Check if user is currently in an active session (within recent 14 hours)
         $userActive = PatrolSession::where('user_id', $user->id)
             ->where('status', 'in_progress')
+            ->where('started_at', '>=', now()->subHours(14))
+            ->latest('started_at')
             ->first();
 
         if ($userActive) {
             return response()->json([
                 'success' => true,
-                'message' => "Anda masih memiliki Sesi Patroli Round {$userActive->round_number} yang sedang berjalan. Selesaikan sesi tersebut terlebih dahulu.",
+                'message' => "Anda masih memiliki Sesi Patroli Round {$userActive->round_number} yang sedang berjalan. Silakan lanjutkan scan titik lokasi.",
                 'data' => $this->formatSessionData($userActive),
             ]);
         }
 
-        // 3. Calculate sequential round number for this schedule today
+        // 2. Calculate sequential round number for this schedule and user today
         $lastSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
+            ->where('user_id', $user->id)
             ->whereDate('started_at', today())
             ->latest('round_number')
             ->first();
@@ -214,15 +212,14 @@ class PatrolApiController extends Controller
     {
         $user = $request->user();
         
-        $session = PatrolSession::with(['schedule.users', 'site.checkpoints', 'logs.checkpoint'])
+        $this->autoCloseExpiredSessions();
+
+        $session = PatrolSession::with(['schedule.users', 'site.checkpoints', 'logs.checkpoint', 'user'])
             ->where('status', 'in_progress')
+            ->where('started_at', '>=', now()->subHours(14))
             ->where(function ($query) use ($user) {
                 $query->where('user_id', $user->id);
-                if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
-                    $query->orWhereHas('schedule.users', function ($q) use ($user) {
-                        $q->where('users.id', $user->id);
-                    });
-                } else {
+                if (in_array($user->role, ['superadmin', 'admin', 'danru'])) {
                     $query->orWhereNotNull('id');
                 }
             })
@@ -241,6 +238,61 @@ class PatrolApiController extends Controller
             'success' => true,
             'data' => $this->formatSessionData($session),
         ]);
+    }
+
+    /**
+     * Automatically close in-progress patrol sessions if their shift hours have passed
+     * or if they are stale (> 14 hours old).
+     */
+    protected function autoCloseExpiredSessions(): void
+    {
+        $now = now()->timezone('Asia/Jakarta');
+        $currentTime = $now->format('H:i:s');
+
+        // 1. Any in_progress session started more than 14 hours ago
+        PatrolSession::where('status', 'in_progress')
+            ->where('started_at', '<', now()->subHours(14))
+            ->update([
+                'status' => 'completed',
+                'completed_at' => DB::raw("COALESCE((SELECT MAX(scanned_at) FROM patrol_logs WHERE patrol_logs.patrol_session_id = patrol_sessions.id), started_at)"),
+            ]);
+
+        // 2. In-progress sessions whose scheduled shift end_time has passed
+        $activeSessions = PatrolSession::with('schedule')
+            ->where('status', 'in_progress')
+            ->whereNotNull('patrol_schedule_id')
+            ->get();
+
+        foreach ($activeSessions as $session) {
+            $schedule = $session->schedule;
+            if (!$schedule || !$schedule->start_time || !$schedule->end_time) {
+                continue;
+            }
+
+            $startTime = $schedule->start_time;
+            $endTime = $schedule->end_time;
+            $isExpired = false;
+
+            if ($startTime <= $endTime) {
+                // Daytime shift (e.g., 02:00:00 to 15:00:00)
+                if ($currentTime > $endTime) {
+                    $isExpired = true;
+                }
+            } else {
+                // Overnight shift (e.g., 22:00:00 to 02:00:00)
+                if ($currentTime > $endTime && $currentTime < $startTime) {
+                    $isExpired = true;
+                }
+            }
+
+            if ($isExpired) {
+                $lastLogTime = $session->logs()->max('scanned_at');
+                $session->update([
+                    'status' => 'completed',
+                    'completed_at' => $lastLogTime ? $lastLogTime : $session->started_at,
+                ]);
+            }
+        }
     }
 
     /**

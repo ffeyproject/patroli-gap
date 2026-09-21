@@ -56,7 +56,7 @@ class PatrolController extends Controller
                 if (! empty($endDate)) {
                     $lq->whereDate('scanned_at', '<=', $endDate);
                 }
-                $lq->with('checkpoint')->orderBy('scanned_at', 'asc');
+                $lq->with(['checkpoint', 'user'])->orderBy('scanned_at', 'asc');
             },
         ])->latest('started_at');
 
@@ -305,7 +305,7 @@ class PatrolController extends Controller
 
     public function show(int $id): Response
     {
-        $session = PatrolSession::with(['schedule', 'site.checkpoints', 'user', 'logs.checkpoint'])
+        $session = PatrolSession::with(['schedule', 'site.checkpoints', 'user', 'logs.checkpoint', 'logs.user'])
             ->findOrFail($id);
 
         return Inertia::render('patrol/show', [
