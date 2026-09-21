@@ -1,8 +1,5 @@
 <?php
 
-use App\Models\PatrolLog;
-use App\Models\PatrolSchedule;
-use App\Models\PatrolSession;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
@@ -13,44 +10,43 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 1. Find Shift Siang schedule
-        $siangSchedule = PatrolSchedule::where('shift_name', 'like', '%Siang%')
-            ->orWhere(function ($q) {
-                $q->where('start_time', '>=', '14:00:00')->where('end_time', '<=', '23:00:00');
-            })
+        // 1. Find Shift Siang schedule ID
+        $siangSchedule = DB::table('patrol_schedules')
+            ->where('shift_name', 'ILIKE', '%siang%')
             ->first();
 
-        // 2. Fix any patrol session scanned by Toni Sudrajat (or today's sessions attached to old night shift)
-        $sessionsToday = PatrolSession::whereHas('logs', function ($q) {
-            $q->whereDate('scanned_at', '2026-09-21');
-        })->get();
+        if (!$siangSchedule) {
+            $siangSchedule = DB::table('patrol_schedules')
+                ->where('shift_name', 'LIKE', '%Siang%')
+                ->first();
+        }
 
-        foreach ($sessionsToday as $session) {
-            $firstLog = $session->logs()->orderBy('scanned_at', 'asc')->first();
-            $scannerUserId = $firstLog ? $firstLog->user_id : $session->user_id;
+        $siangId = $siangSchedule ? $siangSchedule->id : 5;
 
-            $updateData = [
-                'user_id' => $scannerUserId,
-                'round_number' => 1,
-            ];
+        // 2. Find Toni Sudrajat user ID
+        $toniUser = DB::table('users')
+            ->where('name', 'ILIKE', '%Toni Sudrajat%')
+            ->first();
+        $toniId = $toniUser ? $toniUser->id : 22;
 
-            if ($siangSchedule) {
-                $updateData['patrol_schedule_id'] = $siangSchedule->id;
-            }
+        // 3. Update all sessions containing logs scanned on 2026-09-21
+        $sessionIds = DB::table('patrol_logs')
+            ->whereDate('scanned_at', '2026-09-21')
+            ->pluck('patrol_session_id')
+            ->unique()
+            ->toArray();
 
-            if ($firstLog) {
-                $updateData['started_at'] = '2026-09-21 14:13:37';
-            }
-
-            // Check if within active hours right now
-            $now = now()->timezone('Asia/Jakarta');
-            $currentTime = $now->format('H:i:s');
-            if ($siangSchedule && $currentTime >= $siangSchedule->start_time && $currentTime <= $siangSchedule->end_time) {
-                $updateData['status'] = 'in_progress';
-                $updateData['completed_at'] = null;
-            }
-
-            $session->update($updateData);
+        if (!empty($sessionIds)) {
+            DB::table('patrol_sessions')
+                ->whereIn('id', $sessionIds)
+                ->update([
+                    'user_id' => $toniId,
+                    'patrol_schedule_id' => $siangId,
+                    'round_number' => 1,
+                    'started_at' => '2026-09-21 14:13:37',
+                    'status' => 'in_progress',
+                    'completed_at' => null,
+                ]);
         }
     }
 
@@ -59,6 +55,5 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // No reverse needed for data repair
     }
 };
