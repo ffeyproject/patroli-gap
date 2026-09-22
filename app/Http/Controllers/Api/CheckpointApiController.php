@@ -68,7 +68,7 @@ class CheckpointApiController extends Controller
             'address' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
-            'geofence_radius_meters' => 'nullable|integer|min:10',
+            'geofence_radius_meters' => 'nullable|integer|min:10|max:900',
         ]);
 
         $validated['geofence_radius_meters'] = $validated['geofence_radius_meters'] ?? 50;
@@ -96,7 +96,7 @@ class CheckpointApiController extends Controller
             'address' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
-            'geofence_radius_meters' => 'nullable|integer|min:10',
+            'geofence_radius_meters' => 'nullable|integer|min:10|max:900',
             'is_active' => 'nullable|boolean',
         ]);
 
@@ -170,7 +170,7 @@ class CheckpointApiController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'location_description' => 'nullable|string',
-            'max_radius_meters' => 'nullable|integer|min:1',
+            'max_radius_meters' => 'nullable|integer|min:1|max:900',
             'order_index' => 'nullable|integer',
         ]);
 
@@ -212,7 +212,7 @@ class CheckpointApiController extends Controller
             'latitude' => 'sometimes|required|numeric',
             'longitude' => 'sometimes|required|numeric',
             'location_description' => 'nullable|string',
-            'max_radius_meters' => 'nullable|integer|min:1',
+            'max_radius_meters' => 'nullable|integer|min:1|max:900',
             'order_index' => 'nullable|integer',
             'is_active' => 'nullable|boolean',
             'regenerate_qr' => 'nullable|boolean',

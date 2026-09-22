@@ -61,7 +61,7 @@ class SiteCheckpointController extends Controller
             'address' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
-            'geofence_radius_meters' => 'nullable|integer|min:10',
+            'geofence_radius_meters' => 'nullable|integer|min:10|max:900',
         ]);
 
         Site::create($validated);
@@ -79,7 +79,7 @@ class SiteCheckpointController extends Controller
             'address' => 'nullable|string',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
-            'geofence_radius_meters' => 'nullable|integer|min:10',
+            'geofence_radius_meters' => 'nullable|integer|min:10|max:900',
         ]);
 
         $site->update($validated);
@@ -104,7 +104,7 @@ class SiteCheckpointController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'location_description' => 'nullable|string',
-            'max_radius_meters' => 'nullable|integer|min:1',
+            'max_radius_meters' => 'nullable|integer|min:1|max:900',
             'order_index' => 'nullable|integer',
         ]);
 
@@ -128,7 +128,7 @@ class SiteCheckpointController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'location_description' => 'nullable|string',
-            'max_radius_meters' => 'nullable|integer|min:1',
+            'max_radius_meters' => 'nullable|integer|min:1|max:900',
             'order_index' => 'nullable|integer',
             'is_active' => 'nullable|boolean',
             'regenerate_qr' => 'nullable|boolean',

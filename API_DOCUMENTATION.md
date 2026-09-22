@@ -299,9 +299,9 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
 - **Endpoint**: `POST /patrol/session/start`
 - **Auth**: Bearer Token
 - **Deskripsi**: Memulai sesi ronde patroli baru untuk jadwal shift yang dipilih.
-  - **Otomatisasi Ronde Berurutan**: Nomor ronde (`round_number`) dihitung otomatis secara berurutan per jadwal shift hari ini (Round 1, Round 2, Round 3, dst.).
-  - **Izin Shift Petugas**: Hanya satpam yang ditugaskan pada jadwal shift tersebut (atau `danru` / `admin`) yang dapat memulai sesi.
-  - **Proteksi Sesi Aktif**: Jika sudah ada sesi aktif untuk shift ini (misal dimulai rekan satu shift), sistem mengembalikan data sesi aktif tersebut agar dapat langsung dilanjutkan tanpa membuat duplikasi ronde.
+    - **Otomatisasi Ronde Berurutan**: Nomor ronde (`round_number`) dihitung otomatis secara berurutan per jadwal shift hari ini (Round 1, Round 2, Round 3, dst.).
+    - **Izin Shift Petugas**: Hanya satpam yang ditugaskan pada jadwal shift tersebut (atau `danru` / `admin`) yang dapat memulai sesi.
+    - **Proteksi Sesi Aktif**: Jika sudah ada sesi aktif untuk shift ini (misal dimulai rekan satu shift), sistem mengembalikan data sesi aktif tersebut agar dapat langsung dilanjutkan tanpa membuat duplikasi ronde.
 - **Request Body (JSON)**:
     ```json
     {
@@ -465,10 +465,11 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
   | `latitude` | `double` | Latitude GPS satpam saat scan (misal: `-6.2297465`) |
   | `longitude` | `double` | Longitude GPS satpam saat scan (misal: `106.8295180`) |
   | `selfie_photo` | `File / Image` | Foto selfie satpam di depan titik checkpoint |
-  | `condition_status` | `string` *(Opsional)* | Pilihan: `"normal"` (default), `"warning"`, atau `"danger"` |
-  | `notes` | `string` *(Opsional)* | Catatan kondisi fisik di titik checkpoint |
+  | `condition_status` | `string` _(Opsional)_ | Pilihan: `"normal"` (default), `"warning"`, atau `"danger"` |
+  | `notes` | `string` _(Opsional)_ | Catatan kondisi fisik di titik checkpoint |
 
 - **Response Success (`200 OK`)**:
+
     ```json
     {
         "success": true,
@@ -508,6 +509,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 - **Response Error Urutan Scan Salah (`422 Unprocessable Content`)**:
+
     ```json
     {
         "success": false,
@@ -522,6 +524,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 - **Response Error Radius > 10 Meter (`422 Unprocessable Content`)**:
+
     ```json
     {
         "success": false,
@@ -545,8 +548,8 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
 - **Endpoint**: `POST /patrol/session/finish`
 - **Auth**: Bearer Token
 - **Deskripsi**: Menyelesaikan sesi ronde patroli yang sedang berjalan.
-  - **Validasi Kelengkapan Titik**: Secara default seluruh titik checkpoint aktif pada site tersebut wajib discan (`scanned_checkpoints == total_checkpoints`) sebelum ronde dapat diselesaikan.
-  - **Parameter Force**: Parameter `force: true` dapat digunakan (khusus kondisi darurat atau role Danru/Admin) untuk memaksa penyelesaian ronde meski belum semua titik discan.
+    - **Validasi Kelengkapan Titik**: Secara default seluruh titik checkpoint aktif pada site tersebut wajib discan (`scanned_checkpoints == total_checkpoints`) sebelum ronde dapat diselesaikan.
+    - **Parameter Force**: Parameter `force: true` dapat digunakan (khusus kondisi darurat atau role Danru/Admin) untuk memaksa penyelesaian ronde meski belum semua titik discan.
 - **Request Body (JSON)**:
     ```json
     {
@@ -618,9 +621,9 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
 - **Endpoint**: `GET /patrol/recap/checkpoints`
 - **Auth**: Bearer Token
 - **Query Params**:
-  - `site_id` *(Opsional)*: Filter berdasarkan ID Site/Lokasi
-  - `start_date` *(Opsional, format: `YYYY-MM-DD`)*: Tanggal awal filter
-  - `end_date` *(Opsional, format: `YYYY-MM-DD`)*: Tanggal akhir filter
+    - `site_id` _(Opsional)_: Filter berdasarkan ID Site/Lokasi
+    - `start_date` _(Opsional, format: `YYYY-MM-DD`)_: Tanggal awal filter
+    - `end_date` _(Opsional, format: `YYYY-MM-DD`)_: Tanggal akhir filter
 - **Response Success (`200 OK`)**:
     ```json
     {
@@ -750,6 +753,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
 ## 📍 7. Master Site & Checkpoint (CRUD & Geofencing)
 
 ### 7.1 Ambil Semua Site & Titik Checkpoint
+
 - **Endpoint**: `GET /sites`
 - **Auth**: Bearer Token
 - **Response Success (`200 OK`)**:
@@ -789,6 +793,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.2 Tambah Site / Gedung Baru
+
 - **Endpoint**: `POST /sites`
 - **Auth**: Bearer Token
 - **Request Body (JSON)**:
@@ -821,6 +826,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.3 Update / Edit Site
+
 - **Endpoint**: `PUT /sites/{id}` atau `POST /sites/{id}`
 - **Auth**: Bearer Token
 - **Request Body (JSON)**:
@@ -854,6 +860,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.4 Hapus Site
+
 - **Endpoint**: `DELETE /sites/{id}`
 - **Auth**: Bearer Token
 - **Response Success (`200 OK`)**:
@@ -865,6 +872,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.5 Ambil Titik Checkpoint Berdasarkan Site
+
 - **Endpoint**: `GET /sites/{site_id}/checkpoints`
 - **Auth**: Bearer Token
 - **Response Success (`200 OK`)**:
@@ -898,6 +906,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.6 Tambah Titik Checkpoint Patroli Baru
+
 - **Endpoint**: `POST /checkpoints`
 - **Auth**: Bearer Token
 - **Request Body (JSON)**:
@@ -937,6 +946,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.7 Update / Edit Titik Checkpoint Patroli
+
 - **Endpoint**: `PUT /checkpoints/{id}` atau `POST /checkpoints/{id}`
 - **Auth**: Bearer Token
 - **Request Body (JSON)**:
@@ -975,6 +985,7 @@ Dokumentasi lengkap REST API untuk integrasi aplikasi mobile Satpam & Danru berb
     ```
 
 ### 7.8 Hapus Titik Checkpoint Patroli
+
 - **Endpoint**: `DELETE /checkpoints/{id}`
 - **Auth**: Bearer Token
 - **Response Success (`200 OK`)**:

@@ -29,6 +29,7 @@ class GeofenceService
     public function isWithinRadius(float $lat1, float $lon1, float $lat2, float $lon2, float $maxRadiusMeters = 10.0): bool
     {
         $distance = $this->calculateDistance($lat1, $lon1, $lat2, $lon2);
+
         return $distance <= $maxRadiusMeters;
     }
 }

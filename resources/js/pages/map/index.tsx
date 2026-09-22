@@ -79,7 +79,7 @@ interface Props {
     total_in_patrol: number;
 }
 
-type MapLayerType = 'osm' | 'satellite' | 'dark';
+type MapLayerType = 'google-hybrid' | 'google-streets' | 'google-satellite' | 'osm' | 'dark';
 
 export default function LiveMapIndex({
     sites,
@@ -94,7 +94,7 @@ export default function LiveMapIndex({
     const [isLiveActive, setIsLiveActive] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<string>(new Date().toLocaleTimeString('id-ID'));
-    const [activeLayer, setActiveLayer] = useState<MapLayerType>('osm');
+    const [activeLayer, setActiveLayer] = useState<MapLayerType>('google-hybrid');
 
     // Map references
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -151,10 +151,10 @@ export default function LiveMapIndex({
             attributionControl: false,
         });
 
-        // Add default tile layer (OSM Standard showing buildings and streets)
-        const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 20,
-            subdomains: ['a', 'b', 'c'],
+        // Add default tile layer (Google Maps Hybrid: real satellite + labeled buildings and roads)
+        const tileLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            maxZoom: 21,
+            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
         }).addTo(map);
 
         tileLayerRef.current = tileLayer;
@@ -167,7 +167,7 @@ export default function LiveMapIndex({
         };
     }, []);
 
-    // Change Tile Layer (Peta Bangunan OSM vs Citra Satelit vs Dark Mode)
+    // Change Tile Layer (Google Hybrid, Google Maps Roadmap, Dark Mode, OSM)
     useEffect(() => {
         const map = mapInstanceRef.current;
         if (!map) return;
@@ -176,14 +176,26 @@ export default function LiveMapIndex({
             map.removeLayer(tileLayerRef.current);
         }
 
-        let newUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-        let subdomains: string[] | string = ['a', 'b', 'c'];
-        let maxZoom = 20;
+        let newUrl = 'https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
+        let subdomains: string[] | string = ['mt0', 'mt1', 'mt2', 'mt3'];
+        let maxZoom = 21;
 
-        if (activeLayer === 'satellite') {
-            newUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-            subdomains = [];
-            maxZoom = 19;
+        if (activeLayer === 'google-hybrid') {
+            newUrl = 'https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
+            subdomains = ['mt0', 'mt1', 'mt2', 'mt3'];
+            maxZoom = 21;
+        } else if (activeLayer === 'google-streets') {
+            newUrl = 'https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+            subdomains = ['mt0', 'mt1', 'mt2', 'mt3'];
+            maxZoom = 21;
+        } else if (activeLayer === 'google-satellite') {
+            newUrl = 'https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+            subdomains = ['mt0', 'mt1', 'mt2', 'mt3'];
+            maxZoom = 21;
+        } else if (activeLayer === 'osm') {
+            newUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+            subdomains = ['a', 'b', 'c'];
+            maxZoom = 20;
         } else if (activeLayer === 'dark') {
             newUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
             subdomains = 'abcd';
@@ -617,32 +629,32 @@ export default function LiveMapIndex({
                 </div>
 
                 {/* Map Layer Mode Switcher */}
-                <div className="flex items-center gap-1.5 bg-[#0f172a] p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+                <div className="flex items-center gap-1.5 bg-[#0f172a] p-1 rounded-xl border border-slate-800 self-start sm:self-auto overflow-x-auto max-w-full">
                     <button
-                        onClick={() => setActiveLayer('osm')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                            activeLayer === 'osm'
+                        onClick={() => setActiveLayer('google-hybrid')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                            activeLayer === 'google-hybrid'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-400 hover:text-white'
                         }`}
-                        title="Tampilan Peta Standar Bangunan & Jalanan"
+                        title="Tampilan Google Maps Satelit & Label Gedung / Jalan"
                     >
-                        <span>🗺️ Peta Bangunan</span>
+                        <span>🛰️ Google Hybrid</span>
                     </button>
                     <button
-                        onClick={() => setActiveLayer('satellite')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                            activeLayer === 'satellite'
+                        onClick={() => setActiveLayer('google-streets')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                            activeLayer === 'google-streets'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-400 hover:text-white'
                         }`}
-                        title="Tampilan Citra Satelit & Real Gedung"
+                        title="Tampilan Standar Google Maps (Gedung & Jalan)"
                     >
-                        <span>🛰️ Citra Satelit</span>
+                        <span>🗺️ Google Maps</span>
                     </button>
                     <button
                         onClick={() => setActiveLayer('dark')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                             activeLayer === 'dark'
                                 ? 'bg-blue-600 text-white shadow-sm'
                                 : 'text-slate-400 hover:text-white'
@@ -650,6 +662,17 @@ export default function LiveMapIndex({
                         title="Tampilan Tactical Dark Mode"
                     >
                         <span>🌙 Tactical Dark</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveLayer('osm')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                            activeLayer === 'osm'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Tampilan OpenStreetMap"
+                    >
+                        <span>🌐 OSM</span>
                     </button>
                 </div>
             </div>

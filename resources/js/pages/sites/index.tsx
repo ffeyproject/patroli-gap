@@ -478,12 +478,12 @@ export default function SitesIndex({ sites }: Props) {
                                         type="number"
                                         required
                                         min={1}
-                                        max={50}
+                                        max={900}
                                         value={checkpointForm.data.max_radius_meters}
                                         onChange={(e) => checkpointForm.setData('max_radius_meters', parseInt(e.target.value))}
                                         className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                                     />
-                                    <span className="text-[10px] text-emerald-400 mt-0.5 block">Default ketat 10 meter</span>
+                                    <span className="text-[10px] text-emerald-400 mt-0.5 block">Toleransi 1 s/d 900 meter</span>
                                 </div>
                             </div>
 
@@ -624,11 +624,12 @@ export default function SitesIndex({ sites }: Props) {
                                         type="number"
                                         required
                                         min={1}
-                                        max={50}
+                                        max={900}
                                         value={editCheckpointForm.data.max_radius_meters}
                                         onChange={(e) => editCheckpointForm.setData('max_radius_meters', parseInt(e.target.value))}
                                         className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                                     />
+                                    <span className="text-[10px] text-emerald-400 mt-0.5 block">Toleransi 1 s/d 900 meter</span>
                                 </div>
                             </div>
 
@@ -850,10 +851,12 @@ export default function SitesIndex({ sites }: Props) {
                                 <input
                                     type="number"
                                     min={10}
+                                    max={900}
                                     value={siteForm.data.geofence_radius_meters}
                                     onChange={(e) => siteForm.setData('geofence_radius_meters', parseInt(e.target.value))}
                                     className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                                 />
+                                <span className="text-[10px] text-emerald-400 mt-0.5 block">Toleransi 10 s/d 900 meter</span>
                             </div>
 
                             <div>
@@ -989,10 +992,12 @@ export default function SitesIndex({ sites }: Props) {
                                 <input
                                     type="number"
                                     min={10}
+                                    max={900}
                                     value={editSiteForm.data.geofence_radius_meters}
                                     onChange={(e) => editSiteForm.setData('geofence_radius_meters', parseInt(e.target.value))}
                                     className="w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                                 />
+                                <span className="text-[10px] text-emerald-400 mt-0.5 block">Toleransi 10 s/d 900 meter</span>
                             </div>
 
                             <div>
