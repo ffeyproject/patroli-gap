@@ -343,7 +343,9 @@ export default function PatrolIndex({
                 end_date: endDate,
                 search: searchQuery,
                 is_today: isTodayActive,
-            }
+            },
+            sessions.data,
+            'Rekap_Patroli_Keamanan'
         );
     };
 

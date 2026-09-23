@@ -145,7 +145,7 @@ class PatrolController extends Controller
                 if (! empty($endDate)) {
                     $q->whereDate('scanned_at', '<=', $endDate);
                 }
-                $q->with(['user', 'session'])->latest('scanned_at')->limit(100);
+                $q->with(['user', 'session'])->latest('scanned_at');
             }]);
 
         if ($siteId) {
