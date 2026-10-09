@@ -202,6 +202,24 @@ export default function PatrolIndex({
         setSelectedPhoto(getPhotoUrl(path));
     };
 
+    const formatDateLabel = (dateStr?: string | null) => {
+        if (!dateStr) return '';
+        try {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            if (y && m && d) {
+                const dateObj = new Date(y, m - 1, d);
+                return dateObj.toLocaleDateString('id-ID', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                });
+            }
+        } catch {
+            // fallback
+        }
+        return dateStr;
+    };
+
     const applyFilter = (params?: {
         newTab?: 'sessions' | 'recap';
         newSiteId?: string;
@@ -406,7 +424,7 @@ export default function PatrolIndex({
                             </span>
                         ) : (startDate || endDate) ? (
                             <span>
-                                Menampilkan data periode <strong>{startDate || 'Awal'}</strong> s/d <strong>{endDate || 'Sekarang'}</strong>.
+                                Menampilkan data periode <strong>{startDate ? formatDateLabel(startDate) : 'Awal'}</strong> s/d <strong>{endDate ? formatDateLabel(endDate) : 'Sekarang'}</strong>.
                             </span>
                         ) : (
                             <span>
@@ -785,6 +803,17 @@ export default function PatrolIndex({
                                                         </span>
                                                     </div>
                                                     <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 flex-wrap">
+                                                        <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-blue-950/60 text-blue-300 border border-blue-800/60 font-medium shadow-xs">
+                                                            <Calendar className="size-3 text-blue-400" />
+                                                            <span>
+                                                                {new Date(session.started_at).toLocaleDateString('id-ID', {
+                                                                    weekday: 'long',
+                                                                    day: 'numeric',
+                                                                    month: 'short',
+                                                                    year: 'numeric',
+                                                                })}
+                                                            </span>
+                                                        </span>
                                                         <span className="flex items-center gap-1">
                                                             <User className="size-3 text-slate-500" />
                                                             <span className="text-slate-200 font-medium">{mainGuardName}</span>
@@ -838,7 +867,22 @@ export default function PatrolIndex({
                                                             <span>
                                                                 Jarak: <strong className="text-emerald-400">{log.distance_meters}m</strong>
                                                             </span>
-                                                            <span>{new Date(log.scanned_at).toLocaleTimeString('id-ID')}</span>
+                                                            <span
+                                                                className="flex items-center gap-1.5 text-slate-300 font-medium"
+                                                                title={new Date(log.scanned_at).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'medium' })}
+                                                            >
+                                                                <span className="text-slate-400 font-normal">
+                                                                    {new Date(log.scanned_at).toLocaleDateString('id-ID', {
+                                                                        day: '2-digit',
+                                                                        month: '2-digit',
+                                                                        year: 'numeric',
+                                                                    })}
+                                                                </span>
+                                                                <span className="text-slate-600">•</span>
+                                                                <span>
+                                                                    {new Date(log.scanned_at).toLocaleTimeString('id-ID')} WIB
+                                                                </span>
+                                                            </span>
                                                         </div>
 
                                                         {log.user?.name && (
