@@ -95,34 +95,33 @@ class PatrolController extends Controller
         $driver = DB::connection()->getDriverName();
         $likeOp = $driver === 'pgsql' ? 'ilike' : 'like';
 
+        $castType = $driver === 'pgsql' ? 'TEXT' : 'CHAR';
+
         if (! empty($search)) {
-            $sessionsQuery->where(function ($q) use ($search, $likeOp, $driver) {
+            $sessionsQuery->where(function ($q) use ($search, $likeOp, $castType) {
                 $q->whereHas('user', function ($uq) use ($search, $likeOp) {
                     $uq->where('name', $likeOp, "%{$search}%")
                         ->orWhere('badge_number', $likeOp, "%{$search}%");
                 })->orWhereHas('site', function ($sq) use ($search, $likeOp) {
                     $sq->where('name', $likeOp, "%{$search}%")
                         ->orWhere('code', $likeOp, "%{$search}%");
+                })->orWhereHas('schedule', function ($sq) use ($search, $likeOp) {
+                    $sq->where('shift_name', $likeOp, "%{$search}%");
                 })->orWhere('notes', $likeOp, "%{$search}%")
                     ->orWhere('status', $likeOp, "%{$search}%")
-                    ->orWhereRaw("CAST(round_number AS TEXT) {$likeOp} ?", ["%{$search}%"])
-                    ->orWhereHas('logs.checkpoint', function ($cq) use ($search, $likeOp) {
-                        $cq->where('name', $likeOp, "%{$search}%")
-                            ->orWhere('code', $likeOp, "%{$search}%");
+                    ->orWhereRaw("CAST(round_number AS {$castType}) {$likeOp} ?", ["%{$search}%"])
+                    ->orWhereHas('logs', function ($lq) use ($search, $likeOp) {
+                        $lq->where('notes', $likeOp, "%{$search}%")
+                            ->orWhereHas('checkpoint', function ($cq) use ($search, $likeOp) {
+                                $cq->where('name', $likeOp, "%{$search}%")
+                                    ->orWhere('code', $likeOp, "%{$search}%")
+                                    ->orWhere('location_description', $likeOp, "%{$search}%");
+                            })
+                            ->orWhereHas('user', function ($uq) use ($search, $likeOp) {
+                                $uq->where('name', $likeOp, "%{$search}%")
+                                    ->orWhere('badge_number', $likeOp, "%{$search}%");
+                            });
                     });
-
-                if ($driver === 'pgsql') {
-                    $q->orWhereRaw("TO_CHAR(started_at, 'YYYY-MM-DD HH24:MI:SS') ILIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("TO_CHAR(started_at, 'DD/MM/YYYY') ILIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("TO_CHAR(started_at, 'DD-MM-YYYY') ILIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("TO_CHAR(started_at, 'DD Month YYYY') ILIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("TO_CHAR(started_at, 'FMDD') ILIKE ?", ["%{$search}%"]);
-                } else {
-                    $q->orWhereRaw("DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') LIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("DATE_FORMAT(started_at, '%d/%m/%Y') LIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("DATE_FORMAT(started_at, '%d-%m-%Y') LIKE ?", ["%{$search}%"])
-                        ->orWhereRaw("DATE_FORMAT(started_at, '%e') LIKE ?", ["%{$search}%"]);
-                }
             });
         }
 
@@ -130,20 +129,34 @@ class PatrolController extends Controller
 
         // 2. Checkpoints Recap Query with Complete Audit Data
         $checkpointsQuery = Checkpoint::with(['site'])
-            ->withCount(['logs' => function ($q) use ($startDate, $endDate) {
+            ->withCount(['logs' => function ($q) use ($startDate, $endDate, $search, $likeOp) {
                 if (! empty($startDate)) {
                     $q->whereDate('scanned_at', '>=', $startDate);
                 }
                 if (! empty($endDate)) {
                     $q->whereDate('scanned_at', '<=', $endDate);
+                }
+                if (! empty($search)) {
+                    $q->where(function ($subQ) use ($search, $likeOp) {
+                        $subQ->where('notes', $likeOp, "%{$search}%")
+                            ->orWhereHas('user', fn ($uq) => $uq->where('name', $likeOp, "%{$search}%")->orWhere('badge_number', $likeOp, "%{$search}%"))
+                            ->orWhereHas('checkpoint', fn ($cq) => $cq->where('name', $likeOp, "%{$search}%")->orWhere('code', $likeOp, "%{$search}%"));
+                    });
                 }
             }])
-            ->with(['logs' => function ($q) use ($startDate, $endDate) {
+            ->with(['logs' => function ($q) use ($startDate, $endDate, $search, $likeOp) {
                 if (! empty($startDate)) {
                     $q->whereDate('scanned_at', '>=', $startDate);
                 }
                 if (! empty($endDate)) {
                     $q->whereDate('scanned_at', '<=', $endDate);
+                }
+                if (! empty($search)) {
+                    $q->where(function ($subQ) use ($search, $likeOp) {
+                        $subQ->where('notes', $likeOp, "%{$search}%")
+                            ->orWhereHas('user', fn ($uq) => $uq->where('name', $likeOp, "%{$search}%")->orWhere('badge_number', $likeOp, "%{$search}%"))
+                            ->orWhereHas('checkpoint', fn ($cq) => $cq->where('name', $likeOp, "%{$search}%")->orWhere('code', $likeOp, "%{$search}%"));
+                    });
                 }
                 $q->with(['user', 'session'])->latest('scanned_at');
             }]);
@@ -152,25 +165,23 @@ class PatrolController extends Controller
             $checkpointsQuery->where('site_id', $siteId);
         }
         if (! empty($search)) {
-            $checkpointsQuery->where(function ($q) use ($search, $likeOp, $driver) {
+            $checkpointsQuery->where(function ($q) use ($search, $likeOp, $startDate, $endDate) {
                 $q->where('name', $likeOp, "%{$search}%")
                     ->orWhere('code', $likeOp, "%{$search}%")
                     ->orWhere('qr_token', $likeOp, "%{$search}%")
                     ->orWhere('location_description', $likeOp, "%{$search}%")
                     ->orWhereHas('site', fn ($sq) => $sq->where('name', $likeOp, "%{$search}%"))
-                    ->orWhereHas('logs', function ($lq) use ($search, $likeOp, $driver) {
-                        $lq->whereHas('user', fn ($uq) => $uq->where('name', $likeOp, "%{$search}%"))
-                            ->orWhere('notes', $likeOp, "%{$search}%");
-                        if ($driver === 'pgsql') {
-                            $lq->orWhereRaw("TO_CHAR(scanned_at, 'YYYY-MM-DD HH24:MI:SS') ILIKE ?", ["%{$search}%"])
-                                ->orWhereRaw("TO_CHAR(scanned_at, 'DD/MM/YYYY') ILIKE ?", ["%{$search}%"])
-                                ->orWhereRaw("TO_CHAR(scanned_at, 'DD-MM-YYYY') ILIKE ?", ["%{$search}%"])
-                                ->orWhereRaw("TO_CHAR(scanned_at, 'FMDD') ILIKE ?", ["%{$search}%"]);
-                        } else {
-                            $lq->orWhereRaw("DATE_FORMAT(scanned_at, '%Y-%m-%d') LIKE ?", ["%{$search}%"])
-                                ->orWhereRaw("DATE_FORMAT(scanned_at, '%d/%m/%Y') LIKE ?", ["%{$search}%"])
-                                ->orWhereRaw("DATE_FORMAT(scanned_at, '%d') LIKE ?", ["%{$search}%"]);
+                    ->orWhereHas('logs', function ($lq) use ($search, $likeOp, $startDate, $endDate) {
+                        if (! empty($startDate)) {
+                            $lq->whereDate('scanned_at', '>=', $startDate);
                         }
+                        if (! empty($endDate)) {
+                            $lq->whereDate('scanned_at', '<=', $endDate);
+                        }
+                        $lq->where(function ($subLq) use ($search, $likeOp) {
+                            $subLq->where('notes', $likeOp, "%{$search}%")
+                                ->orWhereHas('user', fn ($uq) => $uq->where('name', $likeOp, "%{$search}%")->orWhere('badge_number', $likeOp, "%{$search}%"));
+                        });
                     });
             });
         }
@@ -251,10 +262,7 @@ class PatrolController extends Controller
         });
 
         // Summary Metrics (filtered to current scope)
-        $totalCheckpoints = Checkpoint::when($siteId, fn ($q) => $q->where('site_id', $siteId))
-            ->when(! empty($search), fn ($q) => $q->where('name', 'like', "%{$search}%"))
-            ->count();
-
+        $totalCheckpoints = Checkpoint::when($siteId, fn ($q) => $q->where('site_id', $siteId))->count();
         $coveredCheckpoints = $checkpointsRecap->where('total_scans', '>', 0)->count();
         $missedCheckpoints = max(0, $totalCheckpoints - $coveredCheckpoints);
         $coveragePercentage = $totalCheckpoints > 0 ? round(($coveredCheckpoints / $totalCheckpoints) * 100, 1) : 0;
@@ -262,7 +270,14 @@ class PatrolController extends Controller
         $logsQuery = PatrolLog::when($siteId, function ($q) use ($siteId) {
             $q->whereHas('checkpoint', fn ($cp) => $cp->where('site_id', $siteId));
         })->when(! empty($startDate), fn ($q) => $q->whereDate('scanned_at', '>=', $startDate))
-            ->when(! empty($endDate), fn ($q) => $q->whereDate('scanned_at', '<=', $endDate));
+            ->when(! empty($endDate), fn ($q) => $q->whereDate('scanned_at', '<=', $endDate))
+            ->when(! empty($search), function ($q) use ($search, $likeOp) {
+                $q->where(function ($subQ) use ($search, $likeOp) {
+                    $subQ->where('notes', $likeOp, "%{$search}%")
+                        ->orWhereHas('user', fn ($uq) => $uq->where('name', $likeOp, "%{$search}%")->orWhere('badge_number', $likeOp, "%{$search}%"))
+                        ->orWhereHas('checkpoint', fn ($cq) => $cq->where('name', $likeOp, "%{$search}%")->orWhere('code', $likeOp, "%{$search}%"));
+                });
+            });
 
         $totalScans = (clone $logsQuery)->count();
         $avgDistance = (clone $logsQuery)->avg('distance_meters');

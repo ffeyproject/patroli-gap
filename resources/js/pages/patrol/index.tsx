@@ -229,16 +229,25 @@ export default function PatrolIndex({
         newSearch?: string;
         showAll?: string;
     }) => {
+        const nextSiteId = params?.newSiteId !== undefined ? params.newSiteId : selectedSiteId;
+        const nextScheduleId = params?.newScheduleId !== undefined ? params.newScheduleId : selectedScheduleId;
+        const nextStartDate = params?.newStartDate !== undefined ? params.newStartDate : startDate;
+        const nextEndDate = params?.newEndDate !== undefined ? params.newEndDate : endDate;
+        const nextSearch = params?.newSearch !== undefined ? params.newSearch : searchQuery;
+        const nextShowAll = params?.showAll !== undefined
+            ? (params.showAll || undefined)
+            : (nextStartDate || nextEndDate ? undefined : (filters.show_all ? '1' : undefined));
+
         router.get(
             '/patroli',
             {
                 tab: params?.newTab ?? activeTab,
-                site_id: params?.newSiteId !== undefined ? (params.newSiteId || undefined) : (selectedSiteId || undefined),
-                schedule_id: params?.newScheduleId !== undefined ? (params.newScheduleId || undefined) : (selectedScheduleId || undefined),
-                start_date: params?.newStartDate !== undefined ? (params.newStartDate || undefined) : (startDate || undefined),
-                end_date: params?.newEndDate !== undefined ? (params.newEndDate || undefined) : (endDate || undefined),
-                search: params?.newSearch !== undefined ? (params.newSearch || undefined) : (searchQuery || undefined),
-                show_all: params?.showAll !== undefined ? params.showAll : (filters.show_all ? '1' : undefined),
+                site_id: nextSiteId || undefined,
+                schedule_id: nextScheduleId || undefined,
+                start_date: nextStartDate || undefined,
+                end_date: nextEndDate || undefined,
+                search: nextSearch || undefined,
+                show_all: nextShowAll,
             },
             {
                 preserveState: true,
@@ -252,12 +261,17 @@ export default function PatrolIndex({
         applyFilter();
     };
 
+    const handleClearSearch = () => {
+        setSearchQuery('');
+        applyFilter({ newSearch: '' });
+    };
+
     // Quick Date Preset Handlers
     const handleTodayFilter = () => {
         const todayStr = new Date().toLocaleDateString('en-CA');
         setStartDate(todayStr);
         setEndDate(todayStr);
-        applyFilter({ newStartDate: todayStr, newEndDate: todayStr });
+        applyFilter({ newStartDate: todayStr, newEndDate: todayStr, showAll: '' });
     };
 
     const handleYesterdayFilter = () => {
@@ -266,7 +280,7 @@ export default function PatrolIndex({
         const yestStr = d.toLocaleDateString('en-CA');
         setStartDate(yestStr);
         setEndDate(yestStr);
-        applyFilter({ newStartDate: yestStr, newEndDate: yestStr });
+        applyFilter({ newStartDate: yestStr, newEndDate: yestStr, showAll: '' });
     };
 
     const handleLast7DaysFilter = () => {
@@ -277,7 +291,7 @@ export default function PatrolIndex({
         const endStr = end.toLocaleDateString('en-CA');
         setStartDate(startStr);
         setEndDate(endStr);
-        applyFilter({ newStartDate: startStr, newEndDate: endStr });
+        applyFilter({ newStartDate: startStr, newEndDate: endStr, showAll: '' });
     };
 
     const handleThisMonthFilter = () => {
@@ -286,7 +300,7 @@ export default function PatrolIndex({
         const endStr = now.toLocaleDateString('en-CA');
         setStartDate(startStr);
         setEndDate(endStr);
-        applyFilter({ newStartDate: startStr, newEndDate: endStr });
+        applyFilter({ newStartDate: startStr, newEndDate: endStr, showAll: '' });
     };
 
     const handleAllDatesFilter = () => {
@@ -297,12 +311,13 @@ export default function PatrolIndex({
 
     const handleResetFilter = () => {
         setSelectedSiteId('');
+        setSelectedScheduleId('');
         setStartDate('');
         setEndDate('');
         setSearchQuery('');
         setRecapStatusFilter('all');
         setRecapConditionFilter('all');
-        router.get('/patroli', {}, { preserveState: true, preserveScroll: true });
+        router.get('/patroli', { show_all: '1' }, { preserveState: true, preserveScroll: true });
     };
 
     const switchTab = (tab: 'sessions' | 'recap') => {
@@ -432,8 +447,16 @@ export default function PatrolIndex({
                             </span>
                         )}
                         {filters.search && (
-                            <span className="bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-md text-[11px] border border-blue-700/50 ml-1">
-                                Pencarian: "{filters.search}"
+                            <span className="inline-flex items-center gap-1.5 bg-blue-900/60 text-blue-200 px-2 py-0.5 rounded-md text-[11px] border border-blue-700/50 ml-1">
+                                <span>Pencarian: "{filters.search}"</span>
+                                <button
+                                    type="button"
+                                    onClick={handleClearSearch}
+                                    className="hover:text-white transition-colors cursor-pointer"
+                                    title="Hapus filter pencarian"
+                                >
+                                    <X className="size-3" />
+                                </button>
                             </span>
                         )}
                     </div>
@@ -669,15 +692,25 @@ export default function PatrolIndex({
                     {/* Export & Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2.5">
                         {/* Search Field */}
-                        <form onSubmit={handleSearchSubmit} className="relative min-w-[220px]">
+                        <form onSubmit={handleSearchSubmit} className="relative min-w-[240px]">
                             <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 placeholder="Cari satpam, titik, catatan..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                className="w-full pl-9 pr-8 py-1.5 rounded-xl bg-[#141e33] border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
                             />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={handleClearSearch}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer transition-colors"
+                                    title="Bersihkan pencarian"
+                                >
+                                    <X className="size-3.5" />
+                                </button>
+                            )}
                         </form>
 
                         {/* Export Excel Button */}
@@ -740,10 +773,30 @@ export default function PatrolIndex({
                                 </div>
                             </div>
                         ) : sessions.data.length === 0 ? (
-                            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-2">
+                            <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-3">
                                 <ShieldCheck className="size-12 mx-auto text-slate-600 mb-2" />
-                                <p className="font-semibold text-white">Tidak ada data sesi patroli pada periode ini.</p>
-                                <p className="text-xs text-slate-500">Coba ubah filter site atau rentang tanggal di atas.</p>
+                                <p className="font-semibold text-white">
+                                    {filters.search
+                                        ? `Tidak ada data sesi patroli yang cocok dengan pencarian "${filters.search}" pada periode ini.`
+                                        : 'Tidak ada data sesi patroli pada periode ini.'}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                    {filters.search
+                                        ? 'Coba gunakan kata kunci lain, atau hapus filter pencarian / rentang tanggal.'
+                                        : 'Coba ubah filter site atau pilih rentang tanggal / Semua Periode di atas.'}
+                                </p>
+                                {filters.search && (
+                                    <div className="pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleClearSearch}
+                                            className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                        >
+                                            <X className="size-3.5" />
+                                            <span>Hapus Pencarian</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             sessions.data.map((session) => {
