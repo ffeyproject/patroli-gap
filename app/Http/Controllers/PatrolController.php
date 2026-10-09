@@ -44,6 +44,12 @@ class PatrolController extends Controller
         $search = $request->query('search');
         $activeTab = $request->query('tab', 'sessions');
 
+        $sortOrder = strtolower($request->query('sort', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $perPage = (int) $request->query('per_page', 25);
+        if ($perPage < 5 || $perPage > 200) {
+            $perPage = 25;
+        }
+
         // 1. Sessions Query
         $sessionsQuery = PatrolSession::with([
             'schedule',
@@ -58,7 +64,7 @@ class PatrolController extends Controller
                 }
                 $lq->with(['checkpoint', 'user'])->orderBy('scanned_at', 'asc');
             },
-        ])->latest('started_at');
+        ])->orderBy('started_at', $sortOrder);
 
         if ($siteId) {
             $sessionsQuery->where('site_id', $siteId);
@@ -125,7 +131,7 @@ class PatrolController extends Controller
             });
         }
 
-        $sessions = $sessionsQuery->paginate(15)->withQueryString();
+        $sessions = $sessionsQuery->paginate($perPage)->withQueryString();
 
         // 2. Checkpoints Recap Query with Complete Audit Data
         $checkpointsQuery = Checkpoint::with(['site'])
@@ -311,6 +317,8 @@ class PatrolController extends Controller
                 'end_date' => $endDate ?? '',
                 'search' => $search ?? '',
                 'tab' => $activeTab,
+                'sort' => $sortOrder,
+                'per_page' => $perPage,
                 'is_today' => ($startDate === $today && $endDate === $today),
                 'has_filter' => true,
                 'show_all' => $showAll,

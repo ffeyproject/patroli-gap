@@ -4,8 +4,11 @@ import {
     Activity,
     AlertCircle,
     AlertTriangle,
+    ArrowUpDown,
     Calendar,
     CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
     Clock,
     Download,
     ExternalLink,
@@ -79,6 +82,9 @@ interface Props {
         current_page: number;
         last_page: number;
         total: number;
+        from?: number;
+        to?: number;
+        per_page?: number;
     };
     checkpointsRecap: CheckpointRecapExport[];
     metrics: {
@@ -100,6 +106,8 @@ interface Props {
         end_date?: string;
         search?: string;
         tab?: string;
+        sort?: 'asc' | 'desc';
+        per_page?: number;
         is_today?: boolean;
         has_filter?: boolean;
         show_all?: boolean;
@@ -126,6 +134,8 @@ export default function PatrolIndex({
     const [startDate, setStartDate] = useState<string>(filters.start_date || '');
     const [endDate, setEndDate] = useState<string>(filters.end_date || '');
     const [searchQuery, setSearchQuery] = useState<string>(filters.search || '');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(filters.sort || 'asc');
+    const [perPage, setPerPage] = useState<number>(filters.per_page || 25);
 
     // Status & Condition filters for Recap tab
     const [recapStatusFilter, setRecapStatusFilter] = useState<'all' | 'covered' | 'missed'>('all');
@@ -227,6 +237,9 @@ export default function PatrolIndex({
         newStartDate?: string;
         newEndDate?: string;
         newSearch?: string;
+        newSort?: 'asc' | 'desc';
+        newPerPage?: number;
+        newPage?: number;
         showAll?: string;
     }) => {
         const nextSiteId = params?.newSiteId !== undefined ? params.newSiteId : selectedSiteId;
@@ -234,6 +247,8 @@ export default function PatrolIndex({
         const nextStartDate = params?.newStartDate !== undefined ? params.newStartDate : startDate;
         const nextEndDate = params?.newEndDate !== undefined ? params.newEndDate : endDate;
         const nextSearch = params?.newSearch !== undefined ? params.newSearch : searchQuery;
+        const nextSort = params?.newSort !== undefined ? params.newSort : sortOrder;
+        const nextPerPage = params?.newPerPage !== undefined ? params.newPerPage : perPage;
         const nextShowAll = params?.showAll !== undefined
             ? (params.showAll || undefined)
             : (nextStartDate || nextEndDate ? undefined : (filters.show_all ? '1' : undefined));
@@ -247,6 +262,9 @@ export default function PatrolIndex({
                 start_date: nextStartDate || undefined,
                 end_date: nextEndDate || undefined,
                 search: nextSearch || undefined,
+                sort: nextSort || undefined,
+                per_page: nextPerPage || undefined,
+                page: params?.newPage !== undefined ? params.newPage : undefined,
                 show_all: nextShowAll,
             },
             {
@@ -713,6 +731,21 @@ export default function PatrolIndex({
                             )}
                         </form>
 
+                        {/* Sort Order Button */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const next = sortOrder === 'asc' ? 'desc' : 'asc';
+                                setSortOrder(next);
+                                applyFilter({ newSort: next, newPage: 1 });
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#141e33] hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                            title={sortOrder === 'asc' ? 'Urutan: Dari Terlama ke Terbaru (1 Okt -> 9 Okt). Klik untuk membalik urutan.' : 'Urutan: Dari Terbaru ke Terlama (9 Okt -> 1 Okt). Klik untuk membalik urutan.'}
+                        >
+                            <ArrowUpDown className="size-3.5 text-blue-400" />
+                            <span>{sortOrder === 'asc' ? 'Urut: Terlama' : 'Urut: Terbaru'}</span>
+                        </button>
+
                         {/* Export Excel Button */}
                         <button
                             onClick={handleTriggerExcelExport}
@@ -967,6 +1000,86 @@ export default function PatrolIndex({
                                     </div>
                                 );
                             })
+                        )}
+
+                        {/* Sessions Pagination Bar */}
+                        {sessions.total > 0 && (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs">
+                                <div className="text-slate-400">
+                                    Menampilkan <span className="font-semibold text-white">{sessions.from || 1}</span> - <span className="font-semibold text-white">{sessions.to || sessions.data.length}</span> dari <span className="font-semibold text-white">{sessions.total}</span> sesi patroli
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    {/* Per Page Selector */}
+                                    <div className="flex items-center gap-1.5 text-slate-400">
+                                        <span>Per Halaman:</span>
+                                        <select
+                                            value={perPage}
+                                            onChange={(e) => {
+                                                const val = Number(e.target.value);
+                                                setPerPage(val);
+                                                applyFilter({ newPerPage: val, newPage: 1 });
+                                            }}
+                                            className="rounded-lg bg-[#141e33] border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                                        >
+                                            <option value={15}>15</option>
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Page Jump Buttons */}
+                                    {sessions.last_page > 1 && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                disabled={sessions.current_page <= 1}
+                                                onClick={() => applyFilter({ newPage: sessions.current_page - 1 })}
+                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                title="Halaman sebelumnya"
+                                            >
+                                                <ChevronLeft className="size-3.5" />
+                                                <span>Prev</span>
+                                            </button>
+
+                                            {Array.from({ length: sessions.last_page }, (_, i) => i + 1)
+                                                .filter((p) => p === 1 || p === sessions.last_page || Math.abs(p - sessions.current_page) <= 2)
+                                                .map((p, idx, arr) => {
+                                                    const prevPage = arr[idx - 1];
+                                                    const showEllipsis = prevPage && p - prevPage > 1;
+                                                    return (
+                                                        <div key={p} className="flex items-center gap-1">
+                                                            {showEllipsis && <span className="px-1 text-slate-500">...</span>}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => applyFilter({ newPage: p })}
+                                                                className={`size-7 rounded-lg font-semibold transition-colors cursor-pointer flex items-center justify-center ${
+                                                                    sessions.current_page === p
+                                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                                        : 'bg-[#141e33] hover:bg-slate-700 text-slate-300 border border-slate-700'
+                                                                }`}
+                                                            >
+                                                                {p}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+
+                                            <button
+                                                type="button"
+                                                disabled={sessions.current_page >= sessions.last_page}
+                                                onClick={() => applyFilter({ newPage: sessions.current_page + 1 })}
+                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                title="Halaman berikutnya"
+                                            >
+                                                <span>Next</span>
+                                                <ChevronRight className="size-3.5" />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}
