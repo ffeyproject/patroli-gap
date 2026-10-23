@@ -90,6 +90,66 @@ const overlaps = (aS: string, aE: string, bS: string, bE: string) => {
 const inputCls =
     'w-full rounded-xl bg-[#141e33] border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500';
 
+/* Input jam 24 jam (WIB) yang bisa diketik: "7", "730", "0730", "7:30", "07.30" */
+const parseTime = (raw: string): string | null => {
+    const t = raw.trim().replace('.', ':');
+    let h: number;
+    let m: number;
+    if (t.includes(':')) {
+        const [hs, ms = '0'] = t.split(':');
+        h = Number(hs);
+        m = Number(ms);
+    } else if (/^\d{1,2}$/.test(t)) {
+        h = Number(t);
+        m = 0;
+    } else if (/^\d{3,4}$/.test(t)) {
+        h = Number(t.slice(0, -2));
+        m = Number(t.slice(-2));
+    } else {
+        return null;
+    }
+    if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+function TimeInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+    const [draft, setDraft] = useState(value);
+    const invalid = parseTime(draft) === null;
+
+    return (
+        <div className="relative">
+            <input
+                type="text"
+                inputMode="numeric"
+                maxLength={5}
+                placeholder="07:00"
+                value={draft}
+                onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d:.]/g, '');
+                    setDraft(v);
+                    const ok = parseTime(v);
+                    if (ok && /^\d{2}[:.]\d{2}$/.test(v)) onChange(ok);
+                }}
+                onBlur={() => {
+                    const ok = parseTime(draft);
+                    if (ok) {
+                        setDraft(ok);
+                        onChange(ok);
+                    } else {
+                        setDraft(value);
+                    }
+                }}
+                className={`w-full rounded-xl bg-[#141e33] border pl-3.5 pr-11 py-2 text-xs text-white font-mono focus:outline-none ${
+                    invalid ? 'border-rose-500' : 'border-slate-700 focus:border-blue-500'
+                }`}
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500 pointer-events-none">
+                WIB
+            </span>
+        </div>
+    );
+}
+
 /* ------------------------------------------------------------------ */
 /* Roster picker: pilih petugas dengan cepat (cari, filter, salin)      */
 /* ------------------------------------------------------------------ */
@@ -311,7 +371,7 @@ function RosterModal({
                         <div className="text-white font-semibold text-sm">Atur Petugas · {schedule.shift_name}</div>
                         <div className="text-[11px] text-slate-400 font-mono">
                             {schedule.schedule_date ? shortDate(parseDate(schedule.schedule_date)) : '-'} ·{' '}
-                            {schedule.start_time.slice(0, 5)} - {schedule.end_time.slice(0, 5)} · {schedule.site?.name}
+                            {schedule.start_time.slice(0, 5)} - {schedule.end_time.slice(0, 5)} WIB · {schedule.site?.name}
                         </div>
                     </div>
                     <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:text-white cursor-pointer">
@@ -456,12 +516,12 @@ function ShiftModal({
 
                         <div className="grid grid-cols-3 gap-3">
                             <div>
-                                <label className="block text-xs font-semibold text-slate-300 mb-1">Jam Mulai *</label>
-                                <input type="time" required value={form.data.start_time} onChange={(e) => form.setData('start_time', e.target.value)} className={inputCls} />
+                                <label className="block text-xs font-semibold text-slate-300 mb-1">Jam Mulai (WIB) *</label>
+                                <TimeInput value={form.data.start_time} onChange={(v) => form.setData('start_time', v)} />
                             </div>
                             <div>
-                                <label className="block text-xs font-semibold text-slate-300 mb-1">Jam Selesai *</label>
-                                <input type="time" required value={form.data.end_time} onChange={(e) => form.setData('end_time', e.target.value)} className={inputCls} />
+                                <label className="block text-xs font-semibold text-slate-300 mb-1">Jam Selesai (WIB) *</label>
+                                <TimeInput value={form.data.end_time} onChange={(v) => form.setData('end_time', v)} />
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-slate-300 mb-1">Round Wajib *</label>
@@ -780,7 +840,7 @@ export default function ScheduleManager({ users, sites, schedules }: Props) {
                                                 </span>
                                             </div>
                                             <div className="font-mono text-[11px] text-cyan-400 font-bold">
-                                                {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}
+                                                {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)} WIB
                                             </div>
                                             <div className="text-[10px] text-slate-400 truncate">{s.site?.name}</div>
                                         </div>
