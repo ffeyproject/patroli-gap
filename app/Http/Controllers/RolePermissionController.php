@@ -195,6 +195,7 @@ class RolePermissionController extends Controller
             'checkpoints.destroy' => 'Hapus Titik Checkpoint',
             'users.index' => 'Lihat Daftar Petugas & Shift',
             'users.store' => 'Tambah Akun Pengguna Baru',
+            'schedules.index' => 'Lihat Jadwal Shift',
             'schedules.store' => 'Buat & Tetapkan Jadwal Shift',
             'roles.index' => 'Lihat Halaman Role & Hak Akses',
             'roles.store' => 'Tambah Role Baru',

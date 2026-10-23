@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PatrolSchedule;
 use App\Models\Site;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -15,13 +16,27 @@ class UserScheduleController extends Controller
 {
     public function index(): Response
     {
-        $users = User::orderBy('name')->get();
-        $sites = Site::where('is_active', true)->get();
-        $schedules = PatrolSchedule::with(['site', 'users'])->latest()->get();
-
         return Inertia::render('users/index', [
-            'users' => $users,
-            'sites' => $sites,
+            'users' => User::orderBy('name')->get(),
+        ]);
+    }
+
+    public function schedules(): Response
+    {
+        $schedules = PatrolSchedule::with(['site', 'users'])
+            ->orderByDesc('schedule_date')
+            ->orderBy('start_time')
+            ->get()
+            ->map(function (PatrolSchedule $s) {
+                $data = $s->toArray();
+                $data['schedule_date'] = $s->schedule_date?->toDateString();
+
+                return $data;
+            });
+
+        return Inertia::render('schedules/index', [
+            'users' => User::orderBy('name')->get(),
+            'sites' => Site::where('is_active', true)->get(),
             'schedules' => $schedules,
         ]);
     }
@@ -118,24 +133,98 @@ class UserScheduleController extends Controller
             'start_time' => 'required',
             'end_time' => 'required',
             'schedule_date' => 'nullable|date',
+            'schedule_dates' => 'nullable|array',
+            'schedule_dates.*' => 'date',
             'min_patrol_rounds' => 'required|integer|min:1',
             'user_ids' => 'required|array',
             'user_ids.*' => 'exists:users,id',
         ]);
 
-        $schedule = PatrolSchedule::create([
-            'site_id' => $validated['site_id'],
-            'shift_name' => $validated['shift_name'],
-            'start_time' => $validated['start_time'],
-            'end_time' => $validated['end_time'],
-            'schedule_date' => $validated['schedule_date'] ?? today(),
-            'min_patrol_rounds' => $validated['min_patrol_rounds'],
-            'is_active' => true,
+        // Satu shift bisa langsung dibuat untuk banyak tanggal sekaligus.
+        $dates = collect($validated['schedule_dates'] ?? [])
+            ->when(empty($validated['schedule_dates']), fn ($c) => $c->push($validated['schedule_date'] ?? today()->toDateString()))
+            ->unique()
+            ->values();
+
+        foreach ($dates as $date) {
+            $schedule = PatrolSchedule::create([
+                'site_id' => $validated['site_id'],
+                'shift_name' => $validated['shift_name'],
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
+                'schedule_date' => $date,
+                'min_patrol_rounds' => $validated['min_patrol_rounds'],
+                'is_active' => true,
+            ]);
+
+            $schedule->users()->sync($validated['user_ids']);
+        }
+
+        return back()->with('success', $dates->count().' jadwal shift & penugasan satpam berhasil disimpan.');
+    }
+
+    public function updateScheduleUsers(Request $request, int $id): RedirectResponse
+    {
+        $schedule = PatrolSchedule::findOrFail($id);
+
+        $validated = $request->validate([
+            'user_ids' => 'present|array',
+            'user_ids.*' => 'exists:users,id',
         ]);
 
         $schedule->users()->sync($validated['user_ids']);
 
-        return back()->with('success', 'Jadwal shift & penugasan satpam berhasil disimpan.');
+        return back()->with('success', 'Petugas shift "'.$schedule->shift_name.'" berhasil diperbarui.');
+    }
+
+    public function copyWeek(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'from_date' => 'required|date',
+            'to_date' => 'required|date',
+            'keep_users' => 'boolean',
+        ]);
+
+        $from = Carbon::parse($validated['from_date'])->startOfWeek();
+        $to = Carbon::parse($validated['to_date'])->startOfWeek();
+        $keepUsers = $validated['keep_users'] ?? true;
+
+        $sources = PatrolSchedule::with('users')
+            ->whereBetween('schedule_date', [$from->toDateString(), $from->copy()->endOfWeek()->toDateString()])
+            ->get();
+
+        $created = 0;
+        foreach ($sources as $source) {
+            $offset = $from->diffInDays(Carbon::parse($source->schedule_date)->startOfDay());
+            $newDate = $to->copy()->addDays($offset)->toDateString();
+
+            $exists = PatrolSchedule::where('site_id', $source->site_id)
+                ->where('shift_name', $source->shift_name)
+                ->whereDate('schedule_date', $newDate)
+                ->exists();
+            if ($exists) {
+                continue;
+            }
+
+            $copy = PatrolSchedule::create([
+                'site_id' => $source->site_id,
+                'shift_name' => $source->shift_name,
+                'start_time' => $source->start_time,
+                'end_time' => $source->end_time,
+                'schedule_date' => $newDate,
+                'min_patrol_rounds' => $source->min_patrol_rounds,
+                'is_active' => true,
+            ]);
+
+            if ($keepUsers) {
+                $copy->users()->sync($source->users->pluck('id'));
+            }
+            $created++;
+        }
+
+        return back()->with('success', $created > 0
+            ? "$created jadwal shift berhasil disalin ke minggu tujuan."
+            : 'Tidak ada jadwal baru yang disalin (kosong atau sudah ada).');
     }
 
     public function updateSchedule(Request $request, int $id): RedirectResponse

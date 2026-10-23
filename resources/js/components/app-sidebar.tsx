@@ -3,6 +3,7 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
     CalendarCheck,
+    CalendarDays,
     Compass,
     FileText,
     KeyRound,
@@ -23,6 +24,7 @@ interface NavItem {
     title: string;
     href: string;
     routeName: string;
+    altRouteName?: string;
     icon: React.ComponentType<{ className?: string }>;
 }
 
@@ -74,6 +76,13 @@ const mainNavItems: NavItem[] = [
         href: '/users',
         routeName: 'users.index',
         icon: Users,
+    },
+    {
+        title: 'Jadwal Shift',
+        href: '/jadwal-shift',
+        routeName: 'schedules.index',
+        altRouteName: 'schedules.store',
+        icon: CalendarDays,
     },
     {
         title: 'Role & Permission',
@@ -132,7 +141,10 @@ export function AppSidebar() {
                         const isSuperAdmin = user?.roles?.includes('superadmin') || user?.role === 'superadmin';
                         if (isSuperAdmin) return true;
                         if (item.routeName === 'dashboard') return true;
-                        return user?.permissions?.includes(item.routeName);
+                        return (
+                            user?.permissions?.includes(item.routeName) ||
+                            (!!item.altRouteName && !!user?.permissions?.includes(item.altRouteName))
+                        );
                     })
                     .map((item) => {
                         const isActive = currentUrl === item.href || (item.href !== '/dashboard' && currentUrl.startsWith(item.href));

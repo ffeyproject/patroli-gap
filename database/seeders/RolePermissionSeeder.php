@@ -51,6 +51,7 @@ class RolePermissionSeeder extends Seeder
             // Kelola User & Jadwal Shift
             ['name' => 'users.index', 'display_name' => 'Lihat Daftar Pengguna & Shift', 'module' => 'Kelola User'],
             ['name' => 'users.store', 'display_name' => 'Tambah Pengguna Baru', 'module' => 'Kelola User'],
+            ['name' => 'schedules.index', 'display_name' => 'Lihat Jadwal Shift', 'module' => 'Kelola User'],
             ['name' => 'schedules.store', 'display_name' => 'Buat & Tetapkan Jadwal Shift', 'module' => 'Kelola User'],
 
             // Kelola Role & Permission
@@ -85,7 +86,7 @@ class RolePermissionSeeder extends Seeder
             'peta.live', 'peta.live.data', 'patroli.index', 'patroli.show',
             'insiden.index', 'insiden.status', 'visitors.index', 'visitors.checkout',
             'sites.index', 'sites.store', 'checkpoints.store', 'checkpoints.update',
-            'users.index', 'users.store', 'schedules.store',
+            'users.index', 'users.store', 'schedules.index', 'schedules.store',
             'roles.index', 'roles.store', 'roles.permissions.update', 'roles.assign',
         ];
         $roleAdmin->syncPermissions(Permission::whereIn('name', $adminRoutes)->get());
@@ -95,7 +96,7 @@ class RolePermissionSeeder extends Seeder
             'dashboard', 'attendance.index', 'attendance.checkin', 'attendance.checkout',
             'peta.live', 'peta.live.data', 'patroli.index', 'patroli.show',
             'insiden.index', 'insiden.status', 'visitors.index', 'visitors.checkout',
-            'sites.index', 'users.index', 'schedules.store',
+            'sites.index', 'users.index', 'schedules.index', 'schedules.store',
         ];
         $roleDanru->syncPermissions(Permission::whereIn('name', $danruRoutes)->get());
 

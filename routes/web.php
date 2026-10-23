@@ -53,9 +53,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/users/store', [UserScheduleController::class, 'storeUser'])->name('users.store');
     Route::post('/users/{id}/update', [UserScheduleController::class, 'updateUser'])->name('users.update');
     Route::delete('/users/{id}', [UserScheduleController::class, 'destroyUser'])->name('users.destroy');
+    Route::get('/jadwal-shift', [UserScheduleController::class, 'schedules'])->name('schedules.index');
     Route::post('/schedules/store', [UserScheduleController::class, 'storeSchedule'])->name('schedules.store');
     Route::post('/schedules/{id}/update', [UserScheduleController::class, 'updateSchedule'])->name('schedules.update');
-    Route::delete('/schedules/{id}', [UserScheduleController::class, 'destroySchedule'])->name('schedules.destroy');
+    Route::post('/schedules/copy-week', [UserScheduleController::class, 'copyWeek'])->name('schedules.copyWeek');
+    Route::post('/schedules/{id}/users', [UserScheduleController::class, 'updateScheduleUsers'])->name('schedules.users');
+    Route::delete('/schedules/{id}',[UserScheduleController::class, 'destroySchedule'])->name('schedules.destroy');
 
     // 9. Kelola Role & Hak Akses (Spatie Route-Based Permissions)
     Route::get('/roles-permissions', [RolePermissionController::class, 'index'])->name('roles.index');
