@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -37,8 +39,10 @@ class PatrolSchedule extends Model
      * Jadwal yang mungkin berjalan sekarang: tanggal hari ini, atau tanggal kemarin
      * bila shift melewati tengah malam. Jadwal tanpa tanggal dianggap berulang tiap hari.
      */
-    public function scopeRelevantAt(Builder $query, Carbon $now): Builder
+    public function scopeRelevantAt(Builder $query, CarbonInterface|DateTimeInterface $now): Builder
     {
+        $now = Carbon::parse($now);
+
         return $query->where(function (Builder $q) use ($now) {
             $q->whereNull('schedule_date')
                 ->orWhereDate('schedule_date', $now->toDateString())
@@ -50,12 +54,13 @@ class PatrolSchedule extends Model
     }
 
     /** Rentang waktu shift sebenarnya [mulai, selesai]. */
-    public function windowFor(Carbon $now): ?array
+    public function windowFor(CarbonInterface|DateTimeInterface $now): ?array
     {
         if (! $this->start_time || ! $this->end_time) {
             return null;
         }
 
+        $now = Carbon::parse($now);
         $tz = $now->getTimezone();
         $date = $this->schedule_date
             ? $this->schedule_date->format('Y-m-d')
@@ -75,7 +80,7 @@ class PatrolSchedule extends Model
         return [$start, $end];
     }
 
-    public function isRunningAt(Carbon $now): bool
+    public function isRunningAt(CarbonInterface|DateTimeInterface $now): bool
     {
         $window = $this->windowFor($now);
 
