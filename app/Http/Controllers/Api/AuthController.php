@@ -109,6 +109,7 @@ class AuthController extends Controller
         $schedules = $user->schedules()
             ->with('site')
             ->where('is_active', true)
+            ->relevantAt(now()->timezone('Asia/Jakarta'))
             ->get();
 
         return response()->json([

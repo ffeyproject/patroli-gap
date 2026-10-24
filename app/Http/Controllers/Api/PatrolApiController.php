@@ -26,14 +26,14 @@ class PatrolApiController extends Controller
     public function mySchedules(Request $request): JsonResponse
     {
         $user = $request->user();
-        $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
+        $now = now()->timezone('Asia/Jakarta');
 
         $this->autoCloseExpiredSessions();
 
         // Get schedules where the user is assigned or all active if admin/danru
         $query = PatrolSchedule::with(['site.checkpoints' => function ($q) {
             $q->where('is_active', true)->orderBy('order_index');
-        }])->where('is_active', true);
+        }])->where('is_active', true)->relevantAt($now);
 
         if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
             $query->whereHas('users', function ($q) use ($user) {
@@ -41,19 +41,9 @@ class PatrolApiController extends Controller
             });
         }
 
-        $schedules = $query->get()->map(function ($schedule) use ($currentTime, $user) {
-            $startTime = $schedule->start_time;
-            $endTime = $schedule->end_time;
-
-            $isCurrentShift = false;
-            if ($startTime && $endTime) {
-                if ($startTime <= $endTime) {
-                    $isCurrentShift = ($currentTime >= $startTime && $currentTime <= $endTime);
-                } else {
-                    // Overnight shift across midnight (e.g. 22:00 to 02:00)
-                    $isCurrentShift = ($currentTime >= $startTime || $currentTime <= $endTime);
-                }
-            }
+        $schedules = $query->get()->map(function ($schedule) use ($now, $user) {
+            // Memperhitungkan tanggal jadwal & shift yang melewati tengah malam
+            $isCurrentShift = $schedule->isRunningAt($now);
 
             // Check active in-progress session today for this schedule and user
             $activeSession = PatrolSession::where('patrol_schedule_id', $schedule->id)
@@ -102,7 +92,8 @@ class PatrolApiController extends Controller
         ]);
 
         $user = $request->user();
-        $currentTime = now()->timezone('Asia/Jakarta')->format('H:i:s');
+        $now = now()->timezone('Asia/Jakarta');
+        $currentTime = $now->format('H:i:s');
 
         $this->autoCloseExpiredSessions();
 
@@ -110,23 +101,14 @@ class PatrolApiController extends Controller
             $schedule = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->findOrFail($request->patrol_schedule_id);
         } else {
             // Auto-detect schedule for current time
-            $schedulesQuery = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->where('is_active', true);
+            $schedulesQuery = PatrolSchedule::with(['site.checkpoints' => fn($q) => $q->where('is_active', true)])->where('is_active', true)->relevantAt($now);
             if (!in_array($user->role, ['superadmin', 'admin', 'danru'])) {
                 $schedulesQuery->whereHas('users', function ($q) use ($user) {
                     $q->where('users.id', $user->id);
                 });
             }
             $schedules = $schedulesQuery->get();
-            $schedule = $schedules->first(function ($s) use ($currentTime) {
-                if ($s->start_time && $s->end_time) {
-                    if ($s->start_time <= $s->end_time) {
-                        return ($currentTime >= $s->start_time && $currentTime <= $s->end_time);
-                    } else {
-                        return ($currentTime >= $s->start_time || $currentTime <= $s->end_time);
-                    }
-                }
-                return false;
-            });
+            $schedule = $schedules->first(fn ($s) => $s->isRunningAt($now));
 
             if (!$schedule) {
                 return response()->json([
@@ -147,14 +129,7 @@ class PatrolApiController extends Controller
             }
 
             // Shift Hours Validation: Ensure current time is within schedule hours
-            $isWithinShiftHours = true;
-            if ($schedule->start_time && $schedule->end_time) {
-                if ($schedule->start_time <= $schedule->end_time) {
-                    $isWithinShiftHours = ($currentTime >= $schedule->start_time && $currentTime <= $schedule->end_time);
-                } else {
-                    $isWithinShiftHours = ($currentTime >= $schedule->start_time || $currentTime <= $schedule->end_time);
-                }
-            }
+            $isWithinShiftHours = ! ($schedule->start_time && $schedule->end_time) || $schedule->isRunningAt($now);
 
             if (!$isWithinShiftHours) {
                 return response()->json([
@@ -269,19 +244,26 @@ class PatrolApiController extends Controller
                 continue;
             }
 
-            $startTime = $schedule->start_time;
-            $endTime = $schedule->end_time;
             $isExpired = false;
 
-            if ($startTime <= $endTime) {
-                // Daytime shift (e.g., 02:00:00 to 15:00:00)
-                if ($currentTime > $endTime) {
-                    $isExpired = true;
-                }
+            if ($schedule->schedule_date) {
+                // Jadwal bertanggal: kedaluwarsa setelah waktu selesai shift pada tanggalnya
+                $window = $schedule->windowFor($now);
+                $isExpired = $window !== null && $now > $window[1];
             } else {
-                // Overnight shift (e.g., 22:00:00 to 02:00:00)
-                if ($currentTime > $endTime && $currentTime < $startTime) {
-                    $isExpired = true;
+                $startTime = $schedule->start_time;
+                $endTime = $schedule->end_time;
+
+                if ($startTime <= $endTime) {
+                    // Daytime shift (e.g., 02:00:00 to 15:00:00)
+                    if ($currentTime > $endTime) {
+                        $isExpired = true;
+                    }
+                } else {
+                    // Overnight shift (e.g., 22:00:00 to 02:00:00)
+                    if ($currentTime > $endTime && $currentTime < $startTime) {
+                        $isExpired = true;
+                    }
                 }
             }
 

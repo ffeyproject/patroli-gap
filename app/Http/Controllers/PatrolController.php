@@ -64,7 +64,7 @@ class PatrolController extends Controller
                 }
                 $lq->with(['checkpoint', 'user'])->orderBy('scanned_at', 'asc');
             },
-        ])->orderBy('started_at', $sortOrder);
+        ])->orderBy('started_at', $sortOrder)->orderBy('id', $sortOrder);
 
         if ($siteId) {
             $sessionsQuery->where('site_id', $siteId);
@@ -292,8 +292,13 @@ class PatrolController extends Controller
 
         $sites = Site::where('is_active', true)->get(['id', 'name', 'code']);
         $schedules = PatrolSchedule::where('is_active', true)
-            ->when($siteId, fn($q) => $q->where('site_id', $siteId))
-            ->get(['id', 'site_id', 'shift_name', 'start_time', 'end_time', 'min_patrol_rounds']);
+            ->when($siteId, fn ($q) => $q->where('site_id', $siteId))
+            ->when(! empty($startDate), fn ($q) => $q->whereDate('schedule_date', '>=', $startDate))
+            ->when(! empty($endDate), fn ($q) => $q->whereDate('schedule_date', '<=', $endDate))
+            ->orderBy('schedule_date')
+            ->orderBy('start_time')
+            ->get(['id', 'site_id', 'shift_name', 'start_time', 'end_time', 'schedule_date', 'min_patrol_rounds'])
+            ->map(fn ($s) => array_merge($s->toArray(), ['schedule_date' => $s->schedule_date?->toDateString()]));
 
         return Inertia::render('patrol/index', [
             'sessions' => $sessions,
@@ -319,6 +324,7 @@ class PatrolController extends Controller
                 'tab' => $activeTab,
                 'sort' => $sortOrder,
                 'per_page' => $perPage,
+                'page' => (int) $request->query('page', 1),
                 'is_today' => ($startDate === $today && $endDate === $today),
                 'has_filter' => true,
                 'show_all' => $showAll,

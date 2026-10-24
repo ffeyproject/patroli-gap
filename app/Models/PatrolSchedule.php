@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -29,6 +31,55 @@ class PatrolSchedule extends Model
             'min_patrol_rounds' => 'integer',
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Jadwal yang mungkin berjalan sekarang: tanggal hari ini, atau tanggal kemarin
+     * bila shift melewati tengah malam. Jadwal tanpa tanggal dianggap berulang tiap hari.
+     */
+    public function scopeRelevantAt(Builder $query, Carbon $now): Builder
+    {
+        return $query->where(function (Builder $q) use ($now) {
+            $q->whereNull('schedule_date')
+                ->orWhereDate('schedule_date', $now->toDateString())
+                ->orWhere(function (Builder $y) use ($now) {
+                    $y->whereDate('schedule_date', $now->copy()->subDay()->toDateString())
+                        ->whereColumn('end_time', '<=', 'start_time');
+                });
+        });
+    }
+
+    /** Rentang waktu shift sebenarnya [mulai, selesai]. */
+    public function windowFor(Carbon $now): ?array
+    {
+        if (! $this->start_time || ! $this->end_time) {
+            return null;
+        }
+
+        $tz = $now->getTimezone();
+        $date = $this->schedule_date
+            ? $this->schedule_date->format('Y-m-d')
+            : $now->toDateString();
+        $start = Carbon::parse($date.' '.$this->start_time, $tz);
+        $end = Carbon::parse($date.' '.$this->end_time, $tz);
+        if ($end <= $start) {
+            $end->addDay();
+        }
+
+        // Jadwal berulang (tanpa tanggal) yang melewati tengah malam: geser ke shift yang sedang berjalan.
+        if (! $this->schedule_date && $now < $start && $now <= $end->copy()->subDay()) {
+            $start->subDay();
+            $end->subDay();
+        }
+
+        return [$start, $end];
+    }
+
+    public function isRunningAt(Carbon $now): bool
+    {
+        $window = $this->windowFor($now);
+
+        return $window !== null && $now >= $window[0] && $now <= $window[1];
     }
 
     public function site(): BelongsTo

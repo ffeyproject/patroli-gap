@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Head, router } from '@inertiajs/react';
 import {
     Activity,
@@ -73,6 +73,7 @@ interface ScheduleOption {
     shift_name: string;
     start_time: string;
     end_time: string;
+    schedule_date?: string | null;
     min_patrol_rounds: number;
 }
 
@@ -108,6 +109,7 @@ interface Props {
         tab?: string;
         sort?: 'asc' | 'desc';
         per_page?: number;
+        page?: number;
         is_today?: boolean;
         has_filter?: boolean;
         show_all?: boolean;
@@ -135,11 +137,31 @@ export default function PatrolIndex({
     const [endDate, setEndDate] = useState<string>(filters.end_date || '');
     const [searchQuery, setSearchQuery] = useState<string>(filters.search || '');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(filters.sort || 'asc');
-    const [perPage, setPerPage] = useState<number>(filters.per_page || 25);
+    const [perPage, setPerPage] = useState<number>(filters.per_page ? Number(filters.per_page) : 25);
 
-    // Status & Condition filters for Recap tab
+    // Sync state when filters prop updates
+    useEffect(() => {
+        if (filters.per_page) {
+            setPerPage(Number(filters.per_page));
+        }
+        if (filters.sort) {
+            setSortOrder(filters.sort);
+        }
+        if (filters.tab && (filters.tab === 'sessions' || filters.tab === 'recap')) {
+            setActiveTab(filters.tab);
+        }
+    }, [filters.per_page, filters.sort, filters.tab]);
+
+    // Status & Condition filters & pagination for Recap tab
     const [recapStatusFilter, setRecapStatusFilter] = useState<'all' | 'covered' | 'missed'>('all');
     const [recapConditionFilter, setRecapConditionFilter] = useState<'all' | 'normal' | 'issue'>('all');
+    const [recapPage, setRecapPage] = useState<number>(1);
+    const [recapPerPage, setRecapPerPage] = useState<number>(15);
+
+    // Reset recapPage when recap filters change
+    useEffect(() => {
+        setRecapPage(1);
+    }, [recapStatusFilter, recapConditionFilter, searchQuery, selectedSiteId]);
 
     // Modals
     const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
@@ -252,6 +274,7 @@ export default function PatrolIndex({
         const nextShowAll = params?.showAll !== undefined
             ? (params.showAll || undefined)
             : (nextStartDate || nextEndDate ? undefined : (filters.show_all ? '1' : undefined));
+        const isPageChange = params?.newPage !== undefined;
 
         router.get(
             '/patroli',
@@ -269,7 +292,17 @@ export default function PatrolIndex({
             },
             {
                 preserveState: true,
-                preserveScroll: true,
+                preserveScroll: !isPageChange,
+                onSuccess: () => {
+                    if (isPageChange) {
+                        const el = document.getElementById('sessions-content-top');
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth' });
+                        } else {
+                            window.scrollTo({ top: 350, behavior: 'smooth' });
+                        }
+                    }
+                },
             }
         );
     };
@@ -372,6 +405,12 @@ export default function PatrolIndex({
             ))
         );
     });
+
+    const totalRecapPages = Math.ceil(filteredCheckpoints.length / recapPerPage) || 1;
+    const paginatedCheckpoints = filteredCheckpoints.slice(
+        (recapPage - 1) * recapPerPage,
+        recapPage * recapPerPage
+    );
 
     const hasFilterActive = Boolean(filters.has_filter);
     const isTodayActive = Boolean(filters.is_today);
@@ -661,7 +700,7 @@ export default function PatrolIndex({
                                     const shiftInfo = formatShiftDisplay(sch);
                                     return (
                                         <option key={sch.id} value={sch.id}>
-                                            {shiftInfo ? `${shiftInfo.theme.icon} ${shiftInfo.fullLabel}` : sch.shift_name}
+                                            {sch.schedule_date ? `${new Date(sch.schedule_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} · ` : ''}{shiftInfo ? `${shiftInfo.theme.icon} ${shiftInfo.fullLabel}` : sch.shift_name}
                                         </option>
                                     );
                                 })}
@@ -772,7 +811,7 @@ export default function PatrolIndex({
                 {/* TAB 1: Sesi & Putaran Patroli                            */}
                 {/* ======================================================== */}
                 {activeTab === 'sessions' && (
-                    <div className="space-y-4">
+                    <div id="sessions-content-top" className="space-y-4">
                         {!hasFilterActive ? (
                             <div className="rounded-2xl bg-[#0f172a] border border-slate-800 p-12 text-center text-slate-400 space-y-4 shadow-sm">
                                 <div className="size-16 rounded-2xl bg-blue-950/60 border border-blue-800 flex items-center justify-center text-blue-400 mx-auto shadow-inner">
@@ -1003,84 +1042,88 @@ export default function PatrolIndex({
                         )}
 
                         {/* Sessions Pagination Bar */}
-                        {sessions.total > 0 && (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs">
-                                <div className="text-slate-400">
-                                    Menampilkan <span className="font-semibold text-white">{sessions.from || 1}</span> - <span className="font-semibold text-white">{sessions.to || sessions.data.length}</span> dari <span className="font-semibold text-white">{sessions.total}</span> sesi patroli
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-3">
-                                    {/* Per Page Selector */}
-                                    <div className="flex items-center gap-1.5 text-slate-400">
-                                        <span>Per Halaman:</span>
-                                        <select
-                                            value={perPage}
-                                            onChange={(e) => {
-                                                const val = Number(e.target.value);
-                                                setPerPage(val);
-                                                applyFilter({ newPerPage: val, newPage: 1 });
-                                            }}
-                                            className="rounded-lg bg-[#141e33] border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-                                        >
-                                            <option value={15}>15</option>
-                                            <option value={25}>25</option>
-                                            <option value={50}>50</option>
-                                            <option value={100}>100</option>
-                                        </select>
+                        {sessions.total > 0 && (() => {
+                            const currentPage = Number(sessions.current_page) || 1;
+                            const lastPage = Number(sessions.last_page) || 1;
+                            return (
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-[#0f172a] border border-slate-800 text-xs shadow-sm">
+                                    <div className="text-slate-400">
+                                        Menampilkan <span className="font-semibold text-white">{sessions.from || 1}</span> - <span className="font-semibold text-white">{sessions.to || sessions.data.length}</span> dari <span className="font-semibold text-white">{sessions.total}</span> sesi patroli
                                     </div>
 
-                                    {/* Page Jump Buttons */}
-                                    {sessions.last_page > 1 && (
-                                        <div className="flex items-center gap-1">
-                                            <button
-                                                type="button"
-                                                disabled={sessions.current_page <= 1}
-                                                onClick={() => applyFilter({ newPage: sessions.current_page - 1 })}
-                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
-                                                title="Halaman sebelumnya"
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        {/* Per Page Selector */}
+                                        <div className="flex items-center gap-1.5 text-slate-400">
+                                            <span>Per Halaman:</span>
+                                            <select
+                                                value={perPage}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setPerPage(val);
+                                                    applyFilter({ newPerPage: val, newPage: 1 });
+                                                }}
+                                                className="rounded-lg bg-[#141e33] border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
                                             >
-                                                <ChevronLeft className="size-3.5" />
-                                                <span>Prev</span>
-                                            </button>
-
-                                            {Array.from({ length: sessions.last_page }, (_, i) => i + 1)
-                                                .filter((p) => p === 1 || p === sessions.last_page || Math.abs(p - sessions.current_page) <= 2)
-                                                .map((p, idx, arr) => {
-                                                    const prevPage = arr[idx - 1];
-                                                    const showEllipsis = prevPage && p - prevPage > 1;
-                                                    return (
-                                                        <div key={p} className="flex items-center gap-1">
-                                                            {showEllipsis && <span className="px-1 text-slate-500">...</span>}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => applyFilter({ newPage: p })}
-                                                                className={`size-7 rounded-lg font-semibold transition-colors cursor-pointer flex items-center justify-center ${
-                                                                    sessions.current_page === p
-                                                                        ? 'bg-blue-600 text-white shadow-sm'
-                                                                        : 'bg-[#141e33] hover:bg-slate-700 text-slate-300 border border-slate-700'
-                                                                }`}
-                                                            >
-                                                                {p}
-                                                            </button>
-                                                        </div>
-                                                    );
-                                                })}
-
-                                            <button
-                                                type="button"
-                                                disabled={sessions.current_page >= sessions.last_page}
-                                                onClick={() => applyFilter({ newPage: sessions.current_page + 1 })}
-                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
-                                                title="Halaman berikutnya"
-                                            >
-                                                <span>Next</span>
-                                                <ChevronRight className="size-3.5" />
-                                            </button>
+                                                <option value={15}>15</option>
+                                                <option value={25}>25</option>
+                                                <option value={50}>50</option>
+                                                <option value={100}>100</option>
+                                            </select>
                                         </div>
-                                    )}
+
+                                        {/* Page Jump Buttons */}
+                                        {lastPage > 1 && (
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    disabled={currentPage <= 1}
+                                                    onClick={() => applyFilter({ newPage: currentPage - 1 })}
+                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                    title="Halaman sebelumnya"
+                                                >
+                                                    <ChevronLeft className="size-3.5" />
+                                                    <span>Prev</span>
+                                                </button>
+
+                                                {Array.from({ length: lastPage }, (_, i) => i + 1)
+                                                    .filter((p) => p === 1 || p === lastPage || Math.abs(p - currentPage) <= 2)
+                                                    .map((p, idx, arr) => {
+                                                        const prevPage = arr[idx - 1];
+                                                        const showEllipsis = prevPage && p - prevPage > 1;
+                                                        return (
+                                                            <div key={p} className="flex items-center gap-1">
+                                                                {showEllipsis && <span className="px-1 text-slate-500">...</span>}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => applyFilter({ newPage: p })}
+                                                                    className={`size-7 rounded-lg font-semibold transition-colors cursor-pointer flex items-center justify-center ${
+                                                                        currentPage === p
+                                                                            ? 'bg-blue-600 text-white shadow-sm'
+                                                                            : 'bg-[#141e33] hover:bg-slate-700 text-slate-300 border border-slate-700'
+                                                                    }`}
+                                                                >
+                                                                    {p}
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+
+                                                <button
+                                                    type="button"
+                                                    disabled={currentPage >= lastPage}
+                                                    onClick={() => applyFilter({ newPage: currentPage + 1 })}
+                                                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                    title="Halaman berikutnya"
+                                                >
+                                                    <span>Next</span>
+                                                    <ChevronRight className="size-3.5" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            );
+                        })()}
                     </div>
                 )}
 
@@ -1231,13 +1274,13 @@ export default function PatrolIndex({
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredCheckpoints.map((cp, idx) => (
+                                        paginatedCheckpoints.map((cp, idx) => (
                                             <tr
                                                 key={cp.id}
                                                 className="hover:bg-slate-800/40 transition-colors group"
                                             >
                                                 <td className="px-4 py-3.5 font-mono font-bold text-blue-400 whitespace-nowrap">
-                                                    #{cp.order_index || idx + 1} • {cp.code}
+                                                    #{cp.order_index || (recapPage - 1) * recapPerPage + idx + 1} • {cp.code}
                                                 </td>
                                                 <td className="px-4 py-3.5">
                                                     <div className="font-semibold text-white group-hover:text-blue-300 transition-colors">
@@ -1333,6 +1376,97 @@ export default function PatrolIndex({
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Tab 2 Checkpoint Pagination Bar */}
+                        {filteredCheckpoints.length > 0 && (
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-[#131b2e] border-t border-slate-800 text-xs text-slate-400">
+                                <div className="flex items-center gap-2">
+                                    <span>
+                                        Menampilkan{' '}
+                                        <strong className="text-white">
+                                            {(recapPage - 1) * recapPerPage + 1}
+                                        </strong>{' '}
+                                        -{' '}
+                                        <strong className="text-white">
+                                            {Math.min(recapPage * recapPerPage, filteredCheckpoints.length)}
+                                        </strong>{' '}
+                                        dari <strong className="text-white">{filteredCheckpoints.length}</strong>{' '}
+                                        checkpoint
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-4 flex-wrap justify-end">
+                                    {/* Per Page Selector */}
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-slate-400">Tampilkan:</span>
+                                        <select
+                                            value={recapPerPage}
+                                            onChange={(e) => {
+                                                setRecapPerPage(Number(e.target.value));
+                                                setRecapPage(1);
+                                            }}
+                                            className="bg-[#0f172a] border border-slate-700 text-white rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={15}>15</option>
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Page Jump Buttons */}
+                                    {totalRecapPages > 1 && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                disabled={recapPage <= 1}
+                                                onClick={() => setRecapPage((p) => Math.max(1, p - 1))}
+                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                title="Halaman sebelumnya"
+                                            >
+                                                <ChevronLeft className="size-3.5" />
+                                                <span>Prev</span>
+                                            </button>
+
+                                            {Array.from({ length: totalRecapPages }, (_, i) => i + 1)
+                                                .filter((p) => p === 1 || p === totalRecapPages || Math.abs(p - recapPage) <= 2)
+                                                .map((p, idx, arr) => {
+                                                    const prevPage = arr[idx - 1];
+                                                    const showEllipsis = prevPage && p - prevPage > 1;
+                                                    return (
+                                                        <div key={p} className="flex items-center gap-1">
+                                                            {showEllipsis && <span className="px-1 text-slate-500">...</span>}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setRecapPage(p)}
+                                                                className={`size-7 rounded-lg font-semibold transition-colors cursor-pointer flex items-center justify-center ${
+                                                                    recapPage === p
+                                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                                        : 'bg-[#141e33] hover:bg-slate-700 text-slate-300 border border-slate-700'
+                                                                }`}
+                                                            >
+                                                                {p}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+
+                                            <button
+                                                type="button"
+                                                disabled={recapPage >= totalRecapPages}
+                                                onClick={() => setRecapPage((p) => Math.min(totalRecapPages, p + 1))}
+                                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 transition-colors cursor-pointer"
+                                                title="Halaman berikutnya"
+                                            >
+                                                <span>Next</span>
+                                                <ChevronRight className="size-3.5" />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </>
             )}
